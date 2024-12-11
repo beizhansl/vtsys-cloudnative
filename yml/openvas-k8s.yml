@@ -1,0 +1,374 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openvas-scanner-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openvas-scanner
+  template:
+    metadata:
+      labels:
+        app: openvas-scanner
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/ospd-openvas: unconfined
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - node1          
+      initContainers:
+      # copy data, execte at first
+      - name: init-copy-data
+        image: hub.rat.dev/library/busybox:1.30
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'cp -r /host-data/* /openvas/'] # 复制命令
+        volumeMounts:
+        - name: host-data
+          mountPath: /host-data # 挂载主机的数据目录
+        - name: openvas-data
+          mountPath: /openvas # 挂载 emptyDir 卷用于复制数据
+      # configure log/conf
+      - name: configure-openvas
+        image: registry.community.greenbone.net/community/openvas-scanner:stable
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: openvas-data 
+          subPath: openvas_data
+          mountPath: /mnt
+        - name: openvas-data
+          subPath: openvas_log_data
+          mountPath: /var/log/openvas
+        - name: openvas-data
+          subPath: gvmd_data
+          mountPath: /var/gvmd_data
+        command:
+        - /bin/sh
+        - -c
+        - |
+          printf "table_driven_lsc = yes\nopenvasd_server = http://127.0.0.1:8081\n test_alive_hosts_only=no\n" > /mnt/openvas.conf
+          sed "s/127/128/" /etc/openvas/openvas_log.conf | sed 's/gvm/openvas/' > /mnt/openvas_log.conf
+
+          chmod 644 /mnt/openvas.conf
+          chmod 644 /mnt/openvas_log.conf
+          touch /var/log/openvas/openvas.log
+          chmod 666 /var/log/openvas/openvas.log
+          chown -R 1001:1001 /var/gvmd_data/gvmd
+          chown 1001:1001 /var/gvmd_data/gvmd.sem
+      
+      containers:
+        # redis-server
+      - name: redis-server
+        image: registry.community.greenbone.net/community/redis-server
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: redis-socket-vol
+          mountPath: /run/redis/
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "redis-cli -s /run/redis/redis.sock ping"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "redis-cli -s /run/redis/redis.sock ping"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+      # postgre
+      - name: pg-gvm
+        image: registry.community.greenbone.net/community/pg-gvm:stable
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: openvas-data
+          mountPath: /var/lib/postgresql
+          subPath: psql_data
+        - name: psql-socket-vol
+          mountPath: /var/run/postgresql
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pg_isready -U postgres"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pg_isready -U postgres"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+      # show logs 
+      - name: openvas
+        image: registry.community.greenbone.net/community/openvas-scanner:stable
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: openvas-data
+          mountPath: /etc/openvas
+          subPath: openvas_data
+        - name: openvas-data
+          mountPath: /var/log/openvas
+          subPath: openvas_log_data
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cat /etc/openvas/openvas.conf
+          tail -f /var/log/openvas/openvas.log
+      #gvmd
+      - name: gvmd
+        image: registry.community.greenbone.net/community/gvmd:stable
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: openvas-data
+          subPath: gvmd_data
+          mountPath: /var/lib/gvm
+        - name: openvas-data
+          subPath: scap_data
+          mountPath: /var/lib/gvm/scap-data/
+        - name: openvas-data
+          subPath: cert_data
+          mountPath: /var/lib/gvm/cert-data
+        - name: openvas-data
+          subPath: data_objects
+          mountPath: /var/lib/gvm/data-objects/gvmd
+        - name: openvas-data
+          subPath: vt_data
+          mountPath: /var/lib/openvas/plugins
+        - name: openvas-data
+          subPath: psql_data
+          mountPath: /var/lib/postgresql
+        - name: gvmd-socket-vol
+          mountPath: /run/gvmd
+        - name: ospd-openvas-socket-vol
+          mountPath: /run/ospd
+        - name: psql-socket-vol
+          mountPath: /var/run/postgresql
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              if [ -e /run/gvmd/gvmd.sock ]; then
+                echo "GVMD Socket exists"
+                exit 0
+              else
+                echo "GVMD Socket does not exist"
+                exit 1
+              fi
+          initialDelaySeconds: 180
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              if [ -e /run/gvmd/gvmd.sock ]; then
+                echo "GVMD Socket exists"
+                exit 0
+              else
+                echo "GVMD Socket does not exist"
+                exit 1
+              fi
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      #openvasd -- notus
+      - name: openvasd
+        image: registry.community.greenbone.net/community/openvas-scanner:stable
+        imagePullPolicy: IfNotPresent
+        env:
+          # `service_notus` is set to disable everything but notus,
+          # if you want to utilize openvasd directly removed `OPENVASD_MODE`
+        - name: OPENVASD_MODE
+          value: service_notus
+        - name:  GNUPGHOME
+          value: /etc/openvas/gnupg
+        - name:  LISTENING
+          value: 0.0.0.0:8081
+        volumeMounts:
+        - name: openvas-data
+          mountPath: /etc/openvas
+          subPath: openvas_data
+        - name: openvas-data
+          subPath: openvas_log_data
+          mountPath: /var/log/openvas
+        - name: openvas-data
+          subPath: gpg_data
+          mountPath: /etc/openvas/gnupg
+        - name: openvas-data
+          subPath: notus_data
+          mountPath: /var/lib/notus   
+        livenessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      #ospd-openvas
+      - name: ospd-openvas
+        image: registry.community.greenbone.net/community/ospd-openvas:stable
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: HOSTNAME
+          value: ospd-openvas.local 
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN # for capturing packages in promiscuous mode
+            - NET_RAW # for raw sockets e.g. used for the boreas alive detection
+          seccompProfile:
+            type: Unconfined
+          # appArmorProfile:  
+          #   type: unconfined
+        command:
+          [
+            "ospd-openvas",
+            "-f",
+            "--config",
+            "/etc/gvm/ospd-openvas.conf",
+            "--notus-feed-dir",
+            "/var/lib/notus/advisories",
+            "-m",
+            "666"
+          ]
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              if [ -e /run/ospd/ospd-openvas.sock ]; then
+                echo "OSPD-OPENVAS Socket exists"
+                exit 0
+              else
+                echo "OSPD-OPENVAS Socket does not exist"
+                exit 1
+              fi
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              if [ -e /run/ospd/ospd-openvas.sock ]; then
+                echo "OSPD-OPENVAS Socket exists"
+                exit 0
+              else
+                echo "OSPD-OPENVAS Socket does not exist"
+                exit 1
+              fi
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: openvas-data
+          subPath: gpg_data
+          mountPath: /etc/openvas/gnupg
+        - name: openvas-data
+          subPath: vt_data
+          mountPath: /var/lib/openvas/plugins
+        - name: openvas-data
+          subPath: notus_data
+          mountPath: /var/lib/notus
+        - name: ospd-openvas-socket-vol
+          mountPath: /run/ospd
+        - name: redis-socket-vol
+          mountPath: /run/redis/
+        - name: openvas-data
+          subPath: openvas_data
+          mountPath: /etc/openvas/
+        - name: openvas-data
+          subPath: openvas_log_data
+          mountPath: /var/log/openvas
+      # gas
+      - name: gsa
+        image: registry.community.greenbone.net/community/gsa:stable
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: gvmd-socket-vol
+          mountPath: /run/gvmd
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      #gvm-tool
+      # - name: gvm-tools
+      #   image: registry.community.greenbone.net/community/gvm-tools
+      #   volumeMounts:
+      #   - name: gvmd-socket-vol
+      #     mountPath: /run/gvmd
+      #   - name: ospd-openvas-socket-vol
+      #     mountPath: /run/ospd
+
+      # restartPolicy: Always
+
+      volumes:
+      - name: host-data
+        hostPath:
+          path: /data/openvas
+          type: Directory
+      - name: openvas-data
+        emptyDir: {}
+      - name: redis-socket-vol
+        emptyDir: {}
+      - name : psql-socket-vol
+        emptyDir: {}
+      - name : gvmd-socket-vol
+        emptyDir: {}
+      - name : ospd-openvas-socket-vol
+        emptyDir: {}

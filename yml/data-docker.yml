@@ -1,0 +1,39 @@
+services:   # docker compose yml,  自动拉取openvas所需要的数据文件，提前在节点上通过docker compose up执行
+  vulnerability-tests:
+    image: registry.community.greenbone.net/community/vulnerability-tests
+    environment:
+      STORAGE_PATH: /var/lib/openvas/22.04/vt-data/nasl
+    volumes:
+      - /data/openvas/vt_data:/mnt
+  notus-data:
+    image: registry.community.greenbone.net/community/notus-data
+    volumes:
+      - /data/openvas/notus_data:/mnt
+  scap-data:
+    image: registry.community.greenbone.net/community/scap-data
+    volumes:
+      - /data/openvas/scap_data:/mnt
+  cert-bund-data:
+     image: registry.community.greenbone.net/community/cert-bund-data
+     volumes:
+       - /data/openvas/cert_data:/mnt
+  dfn-cert-data:
+    image: registry.community.greenbone.net/community/dfn-cert-data
+    volumes:
+      - /data/openvas/cert_data:/mnt
+    depends_on:
+      - cert-bund-data
+  data-objects:
+    image: registry.community.greenbone.net/community/data-objects
+    volumes:
+      - /data/openvas/data_objects:/mnt
+  report-formats:
+    image: registry.community.greenbone.net/community/report-formats
+    volumes:
+      - /data/openvas/data_objects:/mnt
+    depends_on:
+      - data-objects
+  gpg-data:
+    image: registry.community.greenbone.net/community/gpg-data
+    volumes:
+      - /data/openvas/gpg_data:/mnt

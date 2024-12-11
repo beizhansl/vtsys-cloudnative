@@ -1,0 +1,33 @@
+2024-09-25 23:00:20,303 - 3792220027 - check_splited_configs - line:59 - ERROR - Create config error: create_ff_config() missing 1 required positional argument: 'pyg'
+2024-09-25 23:00:54,824 - 3830396771 - check_splited_configs - line:59 - ERROR - Create config error: slice indices must be integers or None or have an __index__ method
+2024-09-25 23:01:37,747 - 2678734349 - check_splited_configs - line:59 - ERROR - Create config error: slice indices must be integers or None or have an __index__ method
+2024-09-25 23:02:19,351 - 1282976762 - check_splited_configs - line:59 - ERROR - Create config error: slice indices must be integers or None or have an __index__ method
+2024-09-25 23:07:17,107 - 3248920087 - check_splited_configs - line:60 - ERROR - Create config error: slice indices must be integers or None or have an __index__ method
+2024-09-25 23:07:37,359 - 3908446033 - check_splited_configs - line:61 - ERROR - Create config error: slice indices must be integers or None or have an __index__ method
+2024-09-25 23:08:11,786 - 4032899636 - check_splited_configs - line:61 - ERROR - Create config error: Client Error 400: Attempt to modify NVT in whole-only family AIX Local Security Checks
+2024-09-25 23:08:56,706 - 3252883971 - check_splited_configs - line:61 - ERROR - Create config error: Client Error 400: Attempt to modify NVT in whole-only family AIX Local Security Checks
+2024-09-25 23:09:12,942 - 464729694 - check_splited_configs - line:61 - ERROR - Create config error: Client Error 400: Attempt to modify NVT in whole-only family AIX Local Security Checks
+2024-09-25 23:19:03,038 - 1339151244 - check_splited_configs - line:63 - ERROR - Create config error: Client Error 400: Attempt to modify NVT in whole-only family Amazon Linux Local Security Checks
+2024-09-26 04:55:48,754 - 2865930731 - check_splited_configs - line:92 - ERROR - Create config error: 'Pygvm' object has no attribute 'modify_config_family'
+2024-09-26 05:28:57,000 - 1226913267 - check_splited_configs - line:95 - ERROR - Create config error: Client Error 400: Family "AIX Local Security Checks" must be growing and include all VTs or it must be static and empty.
+2024-10-12 08:22:28,028 - gvm_task - create_splite_task - line:108 - INFO - Creating splite task...
+2024-10-12 08:27:27,963 - gvm_task - create_splite_task - line:108 - INFO - Creating splite task...
+2024-10-12 08:27:28,164 - gvm_task - create_task_with_config - line:125 - INFO - Creating splite task with config...
+2024-10-12 08:27:28,234 - gvm_task - create_task_with_config - line:150 - ERROR - Faild to create gvm task: tuple indices must be integers or slices, not str
+2024-10-12 08:27:28,236 - client - map_to_scanners - line:260 - ERROR - Map task num to gvm 127.0.0.1:9394 failed, tuple indices must be integers or slices, not str
+2024-10-12 08:27:28,236 - client - map_to_scanners - line:271 - ERROR - Get task num from gvm 127.0.0.1:9394 failed, 'running_id'
+2024-10-12 08:27:28,236 - gvm_task - create_splite_task - line:115 - ERROR - Faild to create gvm task: pop from empty list
+2024-10-12 08:33:29,024 - gvm_task - create_splite_task - line:108 - INFO - Creating splite task...
+2024-10-12 08:33:29,224 - gvm_task - create_task_with_config - line:125 - INFO - Creating splite task with config...
+2024-10-12 08:33:29,306 - client - map_to_scanners - line:271 - ERROR - Get task num from gvm 127.0.0.1:9394 failed, 500 Server Error: Internal Server Error for url: http://127.0.0.1:9394/gvm/create_task_with_config?target=192.168.220.132&id=2f341564-8896-11ef-a88f-000c298f9ceb&num=0&splite_num=2
+2024-10-12 08:43:35,347 - gvm_task - create_splite_task - line:108 - INFO - Creating splite task...
+2024-10-12 08:43:35,535 - gvm_task - create_task_with_config - line:125 - INFO - Creating splite task with config...
+2024-10-12 08:43:35,741 - client - map_to_scanners - line:271 - ERROR - Get task num from gvm 127.0.0.1:9394 failed, 'tuple' object does not support item assignment
+2024-10-12 08:43:37,979 - gvm_task - create_splite_task - line:108 - INFO - Creating splite task...
+2024-10-12 08:43:38,326 - gvm_task - create_task_with_config - line:125 - INFO - Creating splite task with config...
+2024-10-12 08:43:38,590 - client - map_to_scanners - line:271 - ERROR - Get task num from gvm 127.0.0.1:9394 failed, 'tuple' object does not support item assignment
+2024-10-13 04:53:01,150 - 3768192263 - check_splited_configs - line:105 - ERROR - Create config error: create_scan_config requires a config_id argument
+2024-10-13 04:56:39,084 - 3768192263 - check_splited_configs - line:105 - ERROR - Create config error: create_scan_config requires a config_id argument
+2024-10-13 04:59:57,257 - 662620075 - check_splited_configs - line:106 - ERROR - Create config error: create_scan_config requires a config_id argument
+2024-10-13 05:00:37,175 - 3153132340 - check_splited_configs - line:106 - ERROR - Create config error: create_scan_config requires a config_id argument
+2024-10-13 05:02:41,121 - 1569919001 - check_splited_configs - line:106 - ERROR - Create config error: Remote closed the connection
