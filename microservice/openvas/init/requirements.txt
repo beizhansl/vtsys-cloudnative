@@ -1,0 +1,5 @@
+kopf
+kubernetes
+pyyaml
+paramiko
+scp

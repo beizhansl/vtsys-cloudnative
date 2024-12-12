@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-data-sync-operator
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-data-sync-operator
+  template:
+    metadata:
+      labels:
+        app: node-data-sync-operator
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:  # 必须调度到含有数据的node上
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: scanner
+                operator: In
+                values:
+                - openvas
+              - key: data
+                operator: In
+                values:
+                - ready
+      serviceAccountName: node-data-sync-operator-sa
+      containers:
+      - name: node-data-sync-operator
+        image: node-data-sync-operator:v1.0
+        command: ["kopf", "run", "operator.py"]
+        volumeMounts:
+        - name: host-data
+          mountPath: /data # 挂载主机的数据目录
+      volumes:
+      - name: host-data
+        hostPath:
+          path: /data/openvas
+          type: Directory

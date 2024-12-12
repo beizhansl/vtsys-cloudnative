@@ -1,0 +1,30 @@
+apiVersion: v1 
+kind: ServiceAccount
+metadata:
+  name: node-data-sync-operator-sa   # 给初始化数据服务提供权限
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  # 定义角色名称
+  # 这个 ClusterRole 为控制器提供对 Pod 和 Node 资源的访问权限
+  # 可以根据实际需要进行扩展
+  name: node-data-sync-operator-role
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-data-sync-operator-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: node-data-sync-operator-sa
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: node-data-sync-operator-role
+  apiGroup: rbac.authorization.k8s.io
