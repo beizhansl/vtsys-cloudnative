@@ -1,2 +1,5 @@
 *.log
 nohup.txt
+.pyc
+__pycache__
+.pid
