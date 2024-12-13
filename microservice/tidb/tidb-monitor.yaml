@@ -1,0 +1,30 @@
+apiVersion: pingcap.com/v1alpha1
+kind: TidbMonitor
+metadata:
+  name: basic
+spec:
+  clusters:
+  - name: basic
+  persistent: true
+  storageClassName: monitoring-storage
+  storage: 5G
+  prometheus:
+    baseImage: prom/prometheus
+    version: v2.27.1
+    service:
+      type: NodePort
+  grafana:
+    baseImage: grafana/grafana
+    version: 7.5.11
+    service:
+      type: NodePort
+  initializer:
+    baseImage: uhub.service.ucloud.cn/pingcap/tidb-monitor-initializer
+    version: v8.1.0
+  reloader:
+    baseImage: uhub.service.ucloud.cn/pingcap/tidb-monitor-reloader
+    version: v1.0.1
+  prometheusReloader:
+    baseImage: quay.io/prometheus-operator/prometheus-config-reloader
+    version: v0.49.0
+  imagePullPolicy: IfNotPresent

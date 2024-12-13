@@ -3,8 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 # from enum import Enum as PyEnum
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
-
-Base = declarative_base()
+from basemodel import Base
 
 class FileType(Enum):
     HTML = 'html'
@@ -14,7 +13,6 @@ class VtReport(Base):
     __tablename__ = 'vt_report'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(String(36), unique=True, nullable=False)  # Assuming UuidModel adds a UUID field
 
     filename = Column(String(255), nullable=False)
     type = Column(Enum(FileType), default=FileType.HTML.value)
@@ -31,6 +29,8 @@ class VtReport(Base):
 
     def __str__(self):
         return f'{self.filename}.{self.type}'
+
+
 
 # Note: The ordering and verbose_name attributes from Django's Meta class are not directly applicable in SQLAlchemy.
 # If you want to order query results, you should do it explicitly when querying the database.

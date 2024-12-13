@@ -1,0 +1,6 @@
+sqlalchemy
+structlog
+pymysql
+fastapi
+uvicorn
+pydantic

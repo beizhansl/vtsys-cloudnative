@@ -3,8 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 # from enum import Enum as PyEnum
 from datetime import datetime
 from sqlalchemy.orm import relationship
-
-Base = declarative_base()
+from basemodel import Base
 
 class ScannerType(Enum):
     WEB = 'web'
@@ -17,22 +16,28 @@ class Status(Enum):
 
 class ScannerEngine(Enum):
     ZAP = 'zaproxy'
-    GVM = 'gvm'
+    OPENVAS = 'openvas'
+
+class FileType(Enum):
+    HTML = 'html'
+    PDF = 'pdf'
+    XML = 'xml'
 
 class VtScanner(Base):
     __tablename__ = 'vt_scanner'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(String(36), unique=True, nullable=False)  # Assuming UuidModel adds a UUID field
 
     name = Column(String(255), unique=True, nullable=False)
     type = Column(Enum(ScannerType), nullable=False)
     engine = Column(Enum(ScannerEngine), nullable=False)
     ipaddr = Column(String(16), nullable=False)
-    port = Column(Integer, nullable=False)
+    port = Column(String, nullable=False)
+    filetype = Column(Enum(ScannerType), nullable=False)
     status = Column(Enum(Status), default=Status.ENABLE.value, nullable=False)
     key = Column(String(64), nullable=False)
     max_concurrency = Column(Integer, nullable=False)
+    except_num = Column(Integer, default=0)
 
     # Relationships
     tasks = relationship("VtTask", back_populates="scanner")

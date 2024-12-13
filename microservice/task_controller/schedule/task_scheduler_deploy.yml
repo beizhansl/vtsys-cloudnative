@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-controller-scheduler-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: task-controller-scheduler
+  template:
+    metadata:
+      labels:
+        app: task-controller-scheduler
+    spec:
+      containers:
+      - name: task-controller-scheduler
+        image: cloudnative-vt/task-controller-scheduler:latest
+        env:
+        - name: RESOURCE_CONTROLLER_HOST
+          value: resource-controller.default.svc.cluster.local
+        - name: RESOURCE_CONTROLLER_PORT
+          value: "80"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_PASSWORD
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_PORT
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_NAME
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        # 如果需要设置环境变量或挂载卷，请在这里添加相应配置
