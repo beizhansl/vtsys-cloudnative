@@ -1,16 +1,14 @@
 from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
-import time
 import structlog
-from datetime import datetime,timezone
+from datetime import datetime
 from model import task as Task, report as Report, scanner as Scanner
 import os
 from tidb_sql import get_db_session
 import requests
 from sqlalchemy import Enum
 from sqlalchemy.orm import Session
-from model.scanner import ScannerEngine
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type, retry_error_callback
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 # from kubernetes import client as k8s_client
 
 # 设置结构化日志
