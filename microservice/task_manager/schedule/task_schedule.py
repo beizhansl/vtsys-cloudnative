@@ -270,7 +270,7 @@ def my_task():
     # 2. 追踪运行中的任务
     #   2.1. 任务完成后下载任务报告
     #   2.2. 任务因扫描器宕机等原因执行失败则重新排队任务
-    logger.info("Executing the periodic task")
+    logger.info("Executing the task periodic task")
     trace_tasks()
     distribute_tasks()
     
@@ -278,10 +278,10 @@ def my_task():
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
     scheduler.add_job(my_task, 'interval', seconds=60)  # 每60秒执行一次
-    print("Starting scheduler...")
+    print("Starting task scheduler...")
     try:
         scheduler.start()
-        print("Started scheduler...")
+        print("Started task scheduler...")
     except (KeyboardInterrupt, SystemExit):
         pass
-    print("Stopped scheduler...")
+    print("Stopped task scheduler...")

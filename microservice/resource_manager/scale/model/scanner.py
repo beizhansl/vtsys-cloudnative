@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Enum, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 # from enum import Enum as PyEnum
 from datetime import datetime
@@ -38,6 +38,7 @@ class VtScanner(Base):
     key = Column(String(64), nullable=False)
     max_concurrency = Column(Integer, nullable=False)
     except_num = Column(Integer, default=0)
+    auto_scale = Column(Boolean, default=False)
 
     # Relationships
     tasks = relationship("VtTask", back_populates="scanner")
