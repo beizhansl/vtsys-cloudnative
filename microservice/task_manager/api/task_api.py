@@ -175,3 +175,34 @@ async def get_report(
         raise Exception("Unknown Error")
     # report = db_session.query(Report.VtReport).filter(Report.VtReport.id == task_id).first()
     return task.report
+
+# 提供给资源管理器进行伸缩的接口
+@app.get("/get_tasks_num", response_model=schemas.VtTaskCountResponse)
+async def get_report(
+    db_session: Session = Depends(get_db_session)
+):
+    query =(
+        db_session.query(
+            Task.VtTask.scanner_type, 
+            # Task.VtTask.task_status, 
+            func.count(Task.VtTask.id).label('count')  # 使用func.count来统计每个分组的数量
+        )
+        .filter(Task.VtTask.task_status.in_([Task.Status.QUEUED, Task.Status.RUNNING]))  # 筛选状态为'running'或'queued'的任务
+        .group_by(Task.VtTask.scanner_type)  # 按照扫描器类型分组
+    )
+    results = query.all()
+    type_num = len(results)
+    task_count = []
+    for result in results:
+        task_count.append(schemas.VtTaskCountSchema(scanner_type=result[0], num=result[1]))
+    return schemas.VtTaskCountResponse(
+        type_num=type_num,
+        task_count=task_count
+    )
+
+# 健康检查接口
+@app.get("/healthz")
+async def get_report(
+    db_session: Session = Depends(get_db_session)
+):
+    return {"status": "ok"}

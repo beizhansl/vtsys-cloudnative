@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: task-controller-scheduler-deployment
+  name: task-manager-scheduler-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: task-controller-scheduler
+      app: task-manager-scheduler
   template:
     metadata:
       labels:
-        app: task-controller-scheduler
+        app: task-manager-scheduler
     spec:
       containers:
-      - name: task-controller-scheduler
-        image: cloudnative-vt/task-controller-scheduler:latest
+      - name: task-manager-scheduler
+        image: cloudnative-vt/task-manager-scheduler:latest
         env:
-        - name: RESOURCE_CONTROLLER_HOST
-          value: resource-controller.default.svc.cluster.local
-        - name: RESOURCE_CONTROLLER_PORT
+        - name: RESOURCE_manager_HOST
+          value: resource-manager.default.svc.cluster.local
+        - name: RESOURCE_manager_PORT
           value: "80"
         - name: DB_USER
           valueFrom:

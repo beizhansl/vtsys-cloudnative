@@ -73,3 +73,13 @@ class VtReportResponse(BaseModel):
     
     class Config:
         orm_mode = True
+
+
+class VtTaskCountSchema(BaseModel):
+    scanner_type: str
+    num: int
+
+
+class VtTaskCountResponse(BaseModel):
+    type_num: int
+    task_count: List[VtTaskCountSchema]

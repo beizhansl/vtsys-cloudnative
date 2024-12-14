@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 暴露任何必要的端口（如果需要）
 EXPOSE 80
 
-ENV APP_MODULE="main:app" 
+ENV APP_MODULE="task_api:app" 
 
 # 设置入口点，指定启动时运行的命令
 CMD ["uvicorn", "--host", "0.0.0.0", "--port", "80", "$APP_MODULE"]
