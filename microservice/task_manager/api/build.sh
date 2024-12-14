@@ -1,5 +1,5 @@
 # 构建镜像
-docker build -t cloudnative-vt/task-controller-scheduler:v1.0 .
+docker build -t cloudnative-vt/task-manager-api:v1.0 .
 
 # # 标记镜像（如果你不是推送到默认的 Docker Hub）
 # docker tag yourusername/periodic-task:latest yourregistry.com/yourusername/periodic-task:latest
