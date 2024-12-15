@@ -44,7 +44,9 @@ class K8sPodStatus(Enum):
 def get_db_scanners(db_session: Session):
     query = (
         db_session.query(Scanner.VtScanner)
-        .filter(Scanner.VtScanner.status.in_([Scanner.Status.DISABLE, Scanner.Status.ENABLE]))
+        .filter(Scanner.VtScanner.status.in_(
+            [Scanner.Status.DISABLE, Scanner.Status.ENABLE, Scanner.Status.WAITING, Scanner.Status.DELETING]
+        ))
     )
     return query.all()
 
@@ -159,9 +161,9 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         if db_scanner.status == Scanner.Status.DISABLE:
             logger.info(f"scanner {db_scanner.name} trans to Running successfully")
             db_scanner.status = Scanner.Status.ENABLE
-        if db_scanner.status == Scanner.Status.DELETED:
-            logger.error(f"scanner {db_scanner.name} trans to Running unexpected, deleting")
-            db_scanner.status = Scanner.Status.DELETING
+        # if db_scanner.status == Scanner.Status.DELETED:
+        #     logger.error(f"scanner {db_scanner.name} trans to Running unexpected, deleting")
+        #     db_scanner.status = Scanner.Status.DELETING
     # 对于unknown报错不处理
     if k8s_scanner['status'] in [K8sPodStatus.UNKNOWN]:
         logger.error(f"scanner {db_scanner.name} in unknown status")
@@ -176,6 +178,9 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         canDelete = check_scanner_running_task(db_scanner.name)
         if canDelete:
             db_scanner.status = Scanner.Status.DELETING
+    # 处理异常scanner, 直接删除
+    if db_scanner.except_num >= db_scanner.max_concurrency:
+        db_scanner.status = Scanner.Status.DELETING
 
 def insert_scanners(k8s_scanenrs: List[dict], db_scanner_dict: Dict[str, Scanner.VtScanner]):
     new_scanners = []
@@ -226,7 +231,9 @@ def trace_scanners():
 def autoscale_scanners():
     autoscalers = fetch_scanner_scalers()
     # 对每个autoscaler进行处理
-    
+    if len(autoscale_scanners) == 0:
+        return
+    # 从
 
 def resource_schedule():
     # 周期性执行任务逻辑
