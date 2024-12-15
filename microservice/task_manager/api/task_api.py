@@ -4,7 +4,7 @@ import structlog
 from model import task as Task, report as Report
 from tidb_sql import get_db_session
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import desc, func
 from fastapi import FastAPI, Request, Depends, status as Status, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -98,7 +98,12 @@ async def list_tasks(
                 DatabaseError
     """
     offset = (page_num - 1) * page_size
-    tasks = db_session.query(Task.VtTask).filter(Task.VtTask.user_id == user_id).offset(offset).limit(page_size).all()
+    query = (
+        db_session.query(Task.VtTask).filter(Task.VtTask.user_id == user_id)
+        .order_by(desc(Task.VtTask.create_time))
+        .offset(offset).limit(page_size)
+    )
+    tasks = query.all()
     total = db_session.execute(
                 select(func.count()).select_from(Task.VtTask).filter(Task.VtTask.user_id == user_id)
             ).scalar_one()
@@ -199,6 +204,25 @@ async def get_report(
         type_num=type_num,
         task_count=task_count
     )
+
+# 提供给资源管理器进行伸缩的接口
+@app.get("/get_running_task_num", response_model=schemas.VtTaskCountResponse)
+async def get_report(
+    scanner_id: int = Query(..., description="Scanner Name"),
+    db_session: Session = Depends(get_db_session)
+):
+    query =(
+        db_session.query(
+            # Task.VtTask.task_status, 
+            func.count(Task.VtTask.id).label('count')  # 使用func.count来统计数量
+        )
+        .filter(Task.VtTask.task_status == Task.Status.RUNNING)  # 筛选状态为'running'的任务
+        .filter(Task.VtTask.scanner_id == scanner_id)
+    )
+    running_task_num = query.scalar()
+    return {
+        "running_task_num": running_task_num
+    }
 
 # 健康检查接口
 @app.get("/healthz")

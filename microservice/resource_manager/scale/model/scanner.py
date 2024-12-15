@@ -1,9 +1,10 @@
-from sqlalchemy import Column, Integer, String, Enum, Boolean
+from sqlalchemy import Column, Integer, String, Enum, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 # from enum import Enum as PyEnum
 from datetime import datetime
 from sqlalchemy.orm import relationship
 from basemodel import Base
+from datetime import timezone
 
 class ScannerType(Enum):
     WEB = 'web'
@@ -11,8 +12,10 @@ class ScannerType(Enum):
 
 class Status(Enum):
     ENABLE = 'enable'
+    WAITING = 'waiting'
     DISABLE = 'disable'
     DELETED = 'deleted'
+    DELETING = 'deleting'
 
 class ScannerEngine(Enum):
     ZAP = 'zaproxy'
@@ -35,10 +38,10 @@ class VtScanner(Base):
     port = Column(String, nullable=False)
     filetype = Column(Enum(ScannerType), nullable=False)
     status = Column(Enum(Status), default=Status.ENABLE.value, nullable=False)
-    key = Column(String(64), nullable=False)
     max_concurrency = Column(Integer, nullable=False)
     except_num = Column(Integer, default=0)
-    auto_scale = Column(Boolean, default=False)
+    create_time = Column(DateTime, default=datetime.now(timezone.utc))
+    update_time = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
     # Relationships
     tasks = relationship("VtTask", back_populates="scanner")

@@ -17,6 +17,8 @@ spec:
       - name: resource-manager-scheduler
         image: cloudnative-vt/resource-manager-scheduler:latest
         env:
+        - name: DELETE_WAIT_TIME   # 删除等待时间，秒为单位
+          value: "600"  
         - name: TASK_MANAGER_HOST
           value: task-manager.default.svc.cluster.local
         - name: TASK_MANAGER_PORT

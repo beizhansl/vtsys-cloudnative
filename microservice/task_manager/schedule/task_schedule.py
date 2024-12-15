@@ -263,7 +263,7 @@ def distribute_tasks():
         except Exception as e:
             logger.error(f"Dbsession save {db_session} exception: {e}")
 
-def my_task():
+def task_schedule():
     # 周期性执行任务逻辑
     # 扫描任务表
     # 1. 分发排队中的任务
@@ -277,7 +277,7 @@ def my_task():
 
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
-    scheduler.add_job(my_task, 'interval', seconds=60)  # 每60秒执行一次
+    scheduler.add_job(task_schedule, 'interval', seconds=60)  # 每60秒执行一次
     print("Starting task scheduler...")
     try:
         scheduler.start()
