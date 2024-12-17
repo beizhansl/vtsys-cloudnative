@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: task-manager-api-deployment
+  name: resource-manager-api-deployment
   labels:
-    app: task-manager-api
+    app: resource-manager-api
 spec:
   replicas: 1 # 运行的应用程序实例数量
   selector:
     matchLabels:
-      app: task-manager-api
+      app: resource-manager-api
   template:
     metadata:
       labels:
-        app: task-manager-api
+        app: resource-manager-api
     spec:
       containers:
-      - name: task-manager-api
-        image: cloudnative-vt/task-manager-api:v1.0
+      - name: resource-manager-api
+        image: cloudnative-vt/resource-manager-api:v1.0
         ports:
         - containerPort: 80
         env:
@@ -51,10 +51,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: task-manager-api-service
+  name: resource-manager-api-service
 spec:
   selector:
-    app: task-manager-api
+    app: resource-manager-api
   ports:
     - protocol: TCP
       port: 8080
