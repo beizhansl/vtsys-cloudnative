@@ -2,9 +2,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
 import structlog
 from datetime import datetime
-from model import task as Task, report as Report, scanner as Scanner
+from ..model import task as Task, report as Report, scanner as Scanner
 import os
-from tidb_sql import get_db_session
+from ..tidb_sql import get_db_session
 import requests
 from sqlalchemy import Enum
 from sqlalchemy.orm import Session

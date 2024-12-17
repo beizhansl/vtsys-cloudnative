@@ -1,31 +1,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: resource-manager-scheduler-deployment
+  name: task-manager-api-deployment
+  labels:
+    app: task-manager-api
 spec:
-  replicas: 1
+  replicas: 1 # 运行的应用程序实例数量
   selector:
     matchLabels:
-      app: resource-manager-scheduler
+      app: task-manager-api
   template:
     metadata:
       labels:
-        app: resource-manager-scheduler
+        app: task-manager-api
     spec:
-      serviceAccountName: resource-manager-sa # 提供访问集群pod的能力
       containers:
-      - name: resource-manager-scheduler
-        image: cloudnative-vt/resource-manager-scheduler:latest
+      - name: task-manager-api
+        image: cloudnative-vt/task-manager-api:v1.0
+        ports:
+        - containerPort: 80
         env:
-        - name: NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: DELETE_WAIT_TIME   # 删除等待时间，秒为单位
-          value: "600"  
-        - name: TASK_MANAGER_HOST
-          value: task-manager.default.svc.cluster.local
-        - name: TASK_MANAGER_PORT
+        - name: RESOURCE_manager_PORT
           value: "80"
         - name: DB_USER
           valueFrom:
@@ -52,8 +47,16 @@ spec:
             secretKeyRef:
               name: db-credentials
               key: DB_NAME
-        resources:
-          limits:
-            memory: "128Mi"
-            cpu: "500m"
-        # 如果需要设置环境变量或挂载卷，请在这里添加相应配置
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-manager-api-service
+spec:
+  selector:
+    app: task-manager-api
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 80
+  type: NodePort # 根据你的需求选择合适的类型

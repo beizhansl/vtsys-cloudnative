@@ -3,15 +3,15 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
 import structlog
 from datetime import datetime
-from model import scanner as Scanner
+from ..model import scanner as Scanner
 import os
-from tidb_sql import get_db_session
+from ..tidb_sql import get_db_session
 import requests
 from sqlalchemy import Enum
 from sqlalchemy.orm import Session
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 # from kubernetes import client as k8s_client
-from k8s_client import load_kube_config
+from ..k8s_client import load_kube_config
 from kubernetes import client
 from kubernetes.client import V1PodList
 from kubernetes.client.rest import ApiException
@@ -29,6 +29,7 @@ taskManagerHost = os.getenv("RESOURCE_CONTROLLER_HOST", "localhost")
 taskManagerPort = os.getenv("RESOURCE_CONTROLLER_PORT", "4000")
 taskManagerUrl = f"http://{taskManagerHost}:{taskManagerPort}"
 deleteWaitTime = os.getenv("DELETE_WAIT_TIME", "600")
+namespace = os.getenv("NAMESPACE", "vtscan")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
@@ -56,7 +57,7 @@ def fetch_scanners():
     scanners = []
     try:
         label_selector = "type=scanner,group=vtscan"
-        pods:V1PodList = v1.list_pod_for_all_namespaces(label_selector=label_selector, watch=False)
+        pods:V1PodList = v1.list_namespaced_pod(namespace=namespace, label_selector=label_selector, watch=False)
         for pod in pods.items:
             scanners.append({
                 'name': pod.metadata.name,
@@ -75,7 +76,7 @@ def fetch_scanner_scalers():
     scanner_scalers = []
     try:
         label_selector = "type=scanner_scaler,group=vtscan"
-        pods:V1PodList = v1.list_pod_for_all_namespaces(label_selector=label_selector, watch=False)
+        pods:V1PodList = v1.list_namespaced_pod(namespace=namespace, label_selector=label_selector, watch=False)
         for pod in pods.items:
             scanner_scalers.append({
                 'name': pod.metadata.name,
@@ -128,6 +129,23 @@ def calculate_wait_time(record_time):
     wait_time = current_time - record_time
     return int(wait_time.total_seconds())
 
+def delete_deleting_scanner(scanner_name:str):
+    v1 = client.CoreV1Api()
+    try:
+        # 删除Pod
+        api_response = v1.delete_namespaced_pod(
+            name=scanner_name,
+            namespace=namespace,
+            # This body is required for the Delete operation
+            # It specifies the propagation policy to use (Foreground, Background, Orphan)
+            body=client.V1DeleteOptions(
+                grace_period_seconds=0
+            )
+        )
+        logger.info("Pod deleting. status='%s'" % str(api_response.status))
+    except client.ApiException as e:
+        logger.error("Exception when calling CoreV1Api->delete_namespaced_pod: %s\n" % e)
+
 def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict[dict]):
     if db_scanner.name not in k8s_scanner_dict:
         if db_scanner.status != Scanner.Status.DELETING:
@@ -176,11 +194,15 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         if wait_time < deleteWaitTime:
             return
         canDelete = check_scanner_running_task(db_scanner.name)
-        if canDelete:
-            db_scanner.status = Scanner.Status.DELETING
+        if not canDelete:
+            return
+        db_scanner.status = Scanner.Status.DELETING
     # 处理异常scanner, 直接删除
     if db_scanner.except_num >= db_scanner.max_concurrency:
         db_scanner.status = Scanner.Status.DELETING
+    # 对于deleting状态下的scanner执行删除操作
+    if db_scanner.status == Scanner.Status.DELETED:
+        delete_deleting_scanner(db_scanner.name)    
 
 def insert_scanners(k8s_scanenrs: List[dict], db_scanner_dict: Dict[str, Scanner.VtScanner]):
     new_scanners = []
@@ -228,17 +250,19 @@ def trace_scanners():
     except Exception as e:
         logger.error(f"Dbsession save {db_session} exception: {e}")
 
-def autoscale_scanners():
-    autoscalers = fetch_scanner_scalers()
-    # 对每个autoscaler进行处理
-    if len(autoscale_scanners) == 0:
-        return
-    # 从
+# sacnner的扩缩容交给各个scanner自己实现的扩缩器处理
+# 资源管理器向他们提供集群资源信息, 由这些扩缩器决定是否进行扩缩，以及如何扩缩
+# def autoscale_scanners():
+#     autoscalers = fetch_scanner_scalers()
+#     # 对每个autoscaler进行处理
+#     if len(autoscale_scanners) == 0:
+#         return
+#     # 从
 
 def resource_schedule():
     # 周期性执行任务逻辑
-    # 扫描任务表
-    # 1. 扩缩容
+    # 检查扫描器表
+    # 1. 扩缩容  - 交给各个扩缩器自己处理
     #   1.1. 扩容，VPA/HPA
     #   1.2. 缩容，VPA/HPA，enable->disable->deleted
     #                                     ->enable ?
@@ -247,7 +271,6 @@ def resource_schedule():
     #   2.2. 进行健康检测，将标记为非健康状态的扫描器下线
     logger.info("Executing the resource periodic task")
     trace_scanners()
-    autoscale_scanners()
 
 if __name__ == "__main__":
     # 首先自动加载配置
