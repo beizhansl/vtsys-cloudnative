@@ -318,10 +318,7 @@ def distribute_tasks():
                         db_session.add(wait_task)
                     else: # scanner存在问题先不分发
                         scanners_sorted.pop(0)
-                        logger.warn(f"scanner {scanner.name} post task error, skip...")
-                    
-                        
-                    
+                        logger.warn(f"scanner {scanner.name} post task error, skip...")                       
     except Exception as e:
         logger.error(f"Dbsession save {db_session} exception: {e}")
 

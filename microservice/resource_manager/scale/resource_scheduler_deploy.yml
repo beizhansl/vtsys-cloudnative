@@ -15,7 +15,7 @@ spec:
       serviceAccountName: resource-manager-sa # 提供访问集群pod的能力
       containers:
       - name: resource-manager-scheduler
-        image: cloudnative-vt/resource-manager-scheduler:latest
+        image: cloudnative-vt/resource-manager-scheduler:v1.0
         env:
         - name: NAMESPACE
           valueFrom:

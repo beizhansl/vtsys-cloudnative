@@ -25,8 +25,8 @@ logging.basicConfig(
 )
 logger = structlog.wrap_logger(logging.getLogger())
 # 获取资源管理器的地址
-taskManagerHost = os.getenv("RESOURCE_CONTROLLER_HOST", "localhost")
-taskManagerPort = os.getenv("RESOURCE_CONTROLLER_PORT", "4000")
+taskManagerHost = os.getenv("TASK_MANAGER_HOST", "localhost")
+taskManagerPort = os.getenv("TASK_MANAGER_PORT", "4000")
 taskManagerUrl = f"http://{taskManagerHost}:{taskManagerPort}"
 deleteWaitTime = os.getenv("DELETE_WAIT_TIME", "600")
 namespace = os.getenv("NAMESPACE", "vtscan")
@@ -257,7 +257,6 @@ def trace_scanners():
 #     # 对每个autoscaler进行处理
 #     if len(autoscale_scanners) == 0:
 #         return
-#     # 从
 
 def resource_schedule():
     # 周期性执行任务逻辑

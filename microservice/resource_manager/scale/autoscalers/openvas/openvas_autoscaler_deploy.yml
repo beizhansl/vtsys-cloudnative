@@ -1,24 +1,35 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: task-manager-scheduler-deployment
+  name: openvas-autoscaler-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: task-manager-scheduler
+      app: openvas-autoscaler
   template:
     metadata:
       labels:
-        app: task-manager-scheduler
+        app: openvas-autoscaler
     spec:
+      serviceAccountName: openvas-autoscaler-sa # 提供访问集群pod的能力
       containers:
-      - name: task-manager-scheduler
-        image: cloudnative-vt/task-manager-scheduler:v1.0
+      - name: openvas-autoscaler
+        image: cloudnative-vt/openvas-autoscaler:v1.0
         env:
-        - name: RESOURCE_manager_HOST
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: DELETE_WAIT_TIME   # 删除等待时间，秒为单位
+          value: "600"  
+        - name: TASK_MANAGER_HOST
+          value: task-manager.default.svc.cluster.local
+        - name: TASK_MANAGER_PORT
+          value: "80"
+        - name: RESOURCE_MANAGER_HOST
           value: resource-manager.default.svc.cluster.local
-        - name: RESOURCE_manager_PORT
+        - name: RESOURCE_MANAGER_PORT
           value: "80"
         - name: DB_USER
           valueFrom:
