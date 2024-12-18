@@ -35,7 +35,6 @@ namespace = os.getenv("NAMESPACE", "vtscan")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
-    raise None
 
 class K8sPodStatus(Enum):
         PENDING = 'Pending'
@@ -76,10 +75,10 @@ if __name__ == "__main__":
         raise
     scheduler = BlockingScheduler()
     scheduler.add_job(openvas_autoscaler, 'interval', seconds=30)  # 每30秒执行一次
-    print("Starting openvas autoscaler...")
+    logger.info("Starting openvas autoscaler...")
     try:
         scheduler.start()
-        print("Started openvas autoscaler...")
+        logger.info("Started openvas autoscaler...")
     except (KeyboardInterrupt, SystemExit):
         pass
-    print("Stopped openvas autoscaler...")
+    logger.info("Stopped openvas autoscaler...")

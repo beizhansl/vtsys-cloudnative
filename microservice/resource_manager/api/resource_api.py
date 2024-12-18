@@ -1,11 +1,13 @@
 import base64
 import logging
+from typing import Dict
+from pydantic import BaseModel
 import structlog
 from ..model import scanner as Scanner
 from tidb_sql import get_db_session
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from fastapi import FastAPI, Request, Depends, status as Status, Query
+from fastapi import FastAPI, HTTPException, Request, Depends, status as Status, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,7 +100,22 @@ async def list_scanner_resource(
         scanners=scanners
     )
 
-
+@app.post("/update_resource_scanner")
+async def update_resource_scanner(
+    scanner_dict: Dict[int, int],
+    db_session: Session = Depends(get_db_session)
+):
+    for scanner_id in scanner_dict:
+        scanner = db_session.query(Scanner.VtScanner).filter(Scanner.VtScanner.id == scanner_id).first()
+        if scanner == None:
+            logger.error(f"Scanner not found: {scanner.id}")
+            raise HTTPException(status_code=404, detail=f"Scanner with id {scanner_id} not found")
+        scanner.max_concurrency = scanner_dict[scanner_id]
+        db_session.add(scanner)
+    return {
+        "ok": True,
+        "errmsg": ""
+    }
 
 # 健康检查接口
 @app.get("/healthz")

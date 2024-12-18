@@ -251,7 +251,7 @@ def post_resource_scanners(scanner_dict: Dict[int, int]):
     """
     response = requests.post(
         resourceControllerUrl + '/update_resource_scanner',
-        data=scanner_dict
+        json=scanner_dict
     )
     response.raise_for_status()
     data = response.json()
@@ -410,10 +410,10 @@ def task_schedule():
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
     scheduler.add_job(task_schedule, 'interval', seconds=60)  # 每60秒执行一次
-    print("Starting task scheduler...")
+    logger.info("Starting task scheduler...")
     try:
         scheduler.start()
-        print("Started task scheduler...")
+        logger.info("Started task scheduler...")
     except (KeyboardInterrupt, SystemExit):
         pass
-    print("Stopped task scheduler...")
+    logger.info("Stopped task scheduler...")

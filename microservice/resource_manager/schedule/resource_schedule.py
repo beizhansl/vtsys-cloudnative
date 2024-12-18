@@ -33,14 +33,13 @@ namespace = os.getenv("NAMESPACE", "vtscan")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
-    raise None
 
 class K8sPodStatus(Enum):
-        PENDING = 'Pending'
-        RUNNING = 'Running'
-        SUCCEEDED = 'Succeeded'
-        FAILED = 'Failed'
-        UNKNOWN = 'Unknown'
+    PENDING = 'Pending'
+    RUNNING = 'Running'
+    SUCCEEDED = 'Succeeded'
+    FAILED = 'Failed'
+    UNKNOWN = 'Unknown'
 
 def get_db_scanners(db_session: Session):
     query = (
@@ -196,7 +195,7 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         try:
             canDelete = check_scanner_running_task(db_scanner.name)
         except Exception as e:
-            logger.error(f"check scanner running task error {e}")
+            logger.error(f"check scanner running task error: {e}")
         if not canDelete:
             return
         db_scanner.status = Scanner.Status.DELETING
@@ -284,10 +283,10 @@ if __name__ == "__main__":
         raise
     scheduler = BlockingScheduler()
     scheduler.add_job(resource_schedule, 'interval', seconds=60)  # 每60秒执行一次
-    print("Starting resource scheduler...")
+    logger.info("Starting resource scheduler...")
     try:
         scheduler.start()
-        print("Started resource scheduler...")
+        logger.info("Started resource scheduler...")
     except (KeyboardInterrupt, SystemExit):
         pass
-    print("Stopped resource scheduler...")
+    logger.info("Stopped resource scheduler...")
