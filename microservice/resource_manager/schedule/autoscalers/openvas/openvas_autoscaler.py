@@ -58,14 +58,11 @@ def trace_nodes_usage():
 
 def openvas_autoscaler():
     # 周期性执行任务逻辑
-    # 检查扫描器表
-    # 1. 扩缩容  - 交给各个扩缩器自己处理
+    # openvas扩缩容  - 交给各个扩缩器自己处理
+    # 从prometheus获取各个节点的相关信息
+    # 按照策略确定是否扩容/缩容
     #   1.1. 扩容，VPA/HPA
     #   1.2. 缩容，VPA/HPA，enable->disable->deleted
-    #                                     ->enable ?
-    # 2. 追踪扫描器
-    #   2.1. 对比kubernetes正在运行中的和数据库中的扫描器
-    #   2.2. 进行健康检测，将标记为非健康状态的扫描器下线
     logger.info("Executing the resource periodic task")
     trace_nodes_usage()
 
@@ -78,7 +75,7 @@ if __name__ == "__main__":
         logger.error((e))
         raise
     scheduler = BlockingScheduler()
-    scheduler.add_job(openvas_autoscaler, 'interval', seconds=60)  # 每60秒执行一次
+    scheduler.add_job(openvas_autoscaler, 'interval', seconds=30)  # 每30秒执行一次
     print("Starting openvas autoscaler...")
     try:
         scheduler.start()

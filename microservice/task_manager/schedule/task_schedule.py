@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Dict, List
 from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
@@ -29,7 +30,6 @@ def get_running_tasks(db_session: Session):
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
-    raise None
 
 class InternStatus(Enum):
         ERROR = 'Error'
@@ -108,9 +108,13 @@ def download_report(task:Task.VtTask):
     port = task.scanner.port
     task_id = task.task_id
     url = f"http://{ipaddr}:{port}"
-    content, msg = fetch_report(url, task_id)
+    content = None
+    try:
+        content = fetch_report(url, task_id)
+    except Exception as e:
+        logger.error(f"fetch report error: {e}")
     if content == None:
-            return None
+        return None
     time = datetime.now().strftime("%Y%m%d%H%M%S")
     typeF = task.scanner.filename
     filename = task.name+'_'+time+typeF
@@ -121,14 +125,20 @@ def download_report(task:Task.VtTask):
                         )
     return new_report    
 
-def trace_task(dbsession: Session, task:Task.VtTask):
+def trace_task(dbsession: Session, task:Task.VtTask, update_scanner_dict: dict):
     logger.info(f"Tracing task {task.id}")
     ipaddr = task.scanner.ipaddr
     port = task.scanner.port
     task_id = task.task_id
     url = f"http://{ipaddr}:{port}"
-    status, msg = fetch_status(url, task_id)
+    status  = None
+    try:
+        status, msg = fetch_status(url, task_id)
+    except Exception as e:
+        logger.error(f"fetch status error: {e}")
     # 统计scanner/task失败次数，达到5次则直接reload
+    old_scanner = deepcopy(task.scanner)
+    old_task = deepcopy(task)
     if status == None:
         task.except_num += 1
         task.scanner.except_num += 1
@@ -148,7 +158,6 @@ def trace_task(dbsession: Session, task:Task.VtTask):
             task.scanner.except_num += 1
             if task.except_num == 5:
                 reload_task(task)
-            return
         task.scanner.except_num = 0
         task.except_num = 0
         task.report = report
@@ -159,19 +168,33 @@ def trace_task(dbsession: Session, task:Task.VtTask):
     if status == InternStatus.RUNNING:
         task.scanner.except_num = 0
         task.except_num = 0
+    # 判断scanner是否需要更新
+    if old_scanner.except_num != task.scanner.except_num:
+        update_scanner_dict[task.scanner.id] = task.scanner.except_num
+        dbsession.add(task.scanner)
+    # 判断task是否需要更新
+    if old_task.except_num != task.except_num or \
+        old_task.task_status != task.task_status:
+            dbsession.add(task)
 
 def trace_tasks():
     logger.info("Tracing tasks")
     try:
         with get_db_session() as db_session:
+            update_scanner_dict = {}
             running_tasks = get_running_tasks(db_session=db_session)
             for running_task in running_tasks:
                 if running_task.scanner.status == Scanner.Status.DELETED:
                     reload_task(running_task)
                     db_session.add(running_task)
                     continue
-                trace_task(db_session, running_task)
-                
+                trace_task(db_session, running_task, update_scanner_dict)
+            # 目前两个scanner表共用
+            # if update_scanner_dict:
+            #     try:
+            #         post_resource_scanners(update_scanner_dict)    
+            #     except Exception as e:
+            #         logger.error(f"post resource scanners error: {e}")
     except Exception as e:
         logger.error(f"Dbsession save {db_session} exception: {e}")
 
@@ -192,15 +215,15 @@ def fetch_scanner_resource():
         reponse:
         {
             ok: False/True, 为False表明资源管理模块出现问题
+            count: 1, 表示scanner数量
             scanners: [{
                 "scanner": "",  scanner详细信息
-                "num": "",  可并发执行的任务数
             }] 具体的scanner列表
             errmsg: 错误原因
         }
     """
     response = requests.get(
-        resourceControllerUrl + '/get_scanner_resource',
+        resourceControllerUrl + '/list_scanner_resource',
     )
     response.raise_for_status()
     data = response.json()
@@ -208,7 +231,34 @@ def fetch_scanner_resource():
         logger.error(f"Get scanner resources failed, {data['errmsg']}")
         return None
     scanners = data['scanners']
-    return scanners 
+    count = data['count']
+    return count, scanners 
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(3),
+    retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
+    retry_error_callback=handle_retry_error
+)
+def post_resource_scanners(scanner_dict: Dict[int, int]):
+    """
+        更新资源管理模块的scanner, 主要是except_num
+        reponse:
+        {
+            ok: False/True, 为False表明资源管理模块出现问题
+            errmsg: 错误原因
+        }
+    """
+    response = requests.post(
+        resourceControllerUrl + '/update_resource_scanner',
+        data=scanner_dict
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not data['ok']:
+        logger.error(f"Update scanner resource failed, {data['errmsg']}")
+        return False
+    return True
 
 @retry(
     stop=stop_after_attempt(5),
@@ -237,7 +287,11 @@ def post_task(scanner_url, target, task_id):
 
 def distribute_task(scanner:Scanner.VtScanner, task:Task.VtTask):
     scanner_url = f'http://{scanner['ipaddr']}:{scanner['port']}'
-    ok = post_task(scanner_url, task.target, task.id)
+    ok = False
+    try:
+        ok = post_task(scanner_url, task.target, task.id)
+    except Exception as e:
+        logger.error(f"post task error: {e}")
     if not ok:
         scanner.except_num += 1
         return False
@@ -267,16 +321,26 @@ def get_task_scanners(db_session: Session) -> List[Row[Tuple[int, int, int]]]:
     )
     return query.all()
 
+def check_scanner_diff(old_scanner, new_scanner):
+    if old_scanner.except_num != new_scanner.except_num:
+        return True
+    return False
+
 def distribute_tasks():
     logger.info("Distributing tasks")
     # 从资源控制器获取资源来分发
     # 目前使用同一个数据库, 因此可以直接从数据库中获取
     # 获取scanner，按照使用率进行排名
-    # scanners = fetch_scanner_resource()
-    # if scanners == None:
+    # scanners_available = None
+    # try:
+    #     scanners_available = fetch_scanner_resource()
+    # except Exception as e:
+    #     logger.error(f"fetch scanner resource error: {e}")
+    # if scanners_available == None:
     #     return
     try:
         with get_db_session() as db_session:
+            update_scanner_dict:Dict[int, int] = {}
             scanners_available = get_task_scanners()
             scanners:List[Scanner.VtScanner] = get_scanners()
             scanner_dict:Dict[int, Scanner.VtScanner] = {}
@@ -311,14 +375,23 @@ def distribute_tasks():
                     if scanner_chosed[1] == scanner_chosed[2]:
                         break
                     scanner = scanner_dict[scanner_chosed[0]]
+                    old_scanner = deepcopy(scanner)
                     ok = distribute_task(scanner, wait_task)
+                    if check_scanner_diff(old_scanner, scanner):
+                        update_scanner_dict[scanner.id] = scanner.except_num
+                        db_session.add(scanner)
                     if ok:
                         scanners_sorted[0][1] += 1
                         index += 1
                         db_session.add(wait_task)
                     else: # scanner存在问题先不分发
                         scanners_sorted.pop(0)
-                        logger.warn(f"scanner {scanner.name} post task error, skip...")                       
+                        logger.warn(f"scanner {scanner.name} post task error, skip...")
+            # if update_scanner_dict:
+            #     try:
+            #         post_resource_scanners(update_scanner_dict)    
+            #     except Exception as e:
+            #         logger.error(f"post resource scanners error: {e}")                      
     except Exception as e:
         logger.error(f"Dbsession save {db_session} exception: {e}")
 

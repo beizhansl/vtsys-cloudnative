@@ -193,7 +193,10 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         wait_time = calculate_wait_time(db_scanner.update_time)
         if wait_time < deleteWaitTime:
             return
-        canDelete = check_scanner_running_task(db_scanner.name)
+        try:
+            canDelete = check_scanner_running_task(db_scanner.name)
+        except Exception as e:
+            logger.error(f"check scanner running task error {e}")
         if not canDelete:
             return
         db_scanner.status = Scanner.Status.DELETING
