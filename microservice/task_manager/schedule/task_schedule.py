@@ -1,3 +1,4 @@
+from typing import Dict, List
 from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
 import structlog
@@ -6,7 +7,7 @@ from ..model import task as Task, report as Report, scanner as Scanner
 import os
 from ..tidb_sql import get_db_session
 import requests
-from sqlalchemy import Enum
+from sqlalchemy import Enum, Row, Tuple, and_, func
 from sqlalchemy.orm import Session
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 # from kubernetes import client as k8s_client
@@ -193,7 +194,7 @@ def fetch_scanner_resource():
             ok: False/True, 为False表明资源管理模块出现问题
             scanners: [{
                 "scanner": "",  scanner详细信息
-                "num": "",  还可执行的任务数
+                "num": "",  可并发执行的任务数
             }] 具体的scanner列表
             errmsg: 错误原因
         }
@@ -239,29 +240,90 @@ def distribute_task(scanner:Scanner.VtScanner, task:Task.VtTask):
     ok = post_task(scanner_url, task.target, task.id)
     if not ok:
         scanner.except_num += 1
-        return
+        return False
     scanner.except_num = 0
     task.scanner = scanner
     task.scanner_id = scanner.id
-    task.task_status = Task.Status.RUNNING    
+    task.task_status = Task.Status.RUNNING
+    return True
+
+def get_scanners(db_session: Session) -> List[Scanner.VtScanner]:
+    return db_session.query(Scanner.VtScanner).filter(Scanner.Status.ENABLE).all()
+
+def get_task_scanners(db_session: Session) -> List[Row[Tuple[int, int, int]]]:
+    # 查询每个 scanner 及其可以并发执行的任务数与已分配的 running 状态任务数
+    query = (
+        db_session.query(
+            Scanner.VtScanner.id,
+            Scanner.VtScanner.engine,
+            Scanner.VtScanner.max_concurrency,
+            func.count(Task.id).label('running_tasks')  # 计算已分配且状态为 running 的任务数量
+        )
+        .outerjoin(
+            Task.VtTask, 
+            and_(Task.VtTask.scanner_id == Scanner.VtScanner.id, Task.VtTask.task_status == Task.Status.RUNNING)  # 左外连接并过滤 running 状态的任务
+        )
+        .group_by(Scanner.VtScanner.id)  # 按照 scanner 分组
+    )
+    return query.all()
 
 def distribute_tasks():
     logger.info("Distributing tasks")
     # 从资源控制器获取资源来分发
-    scanners = fetch_scanner_resource()
-    if scanners == None:
-        return
-    for scanner_msg in scanners:
-        try:
-            with get_db_session() as db_session:
-                scanner = scanner_msg['scanner']
-                can_apply_task_num = scanner_msg['num'] 
-                scanner_engine = scanner['engine']
-                wait_tasks = get_queued_tasks(db_session=db_session, scan_engine=scanner_engine, num=can_apply_task_num)
-                for wait_task in wait_tasks:
-                    distribute_task(scanner, wait_task)
-        except Exception as e:
-            logger.error(f"Dbsession save {db_session} exception: {e}")
+    # 目前使用同一个数据库, 因此可以直接从数据库中获取
+    # 获取scanner，按照使用率进行排名
+    # scanners = fetch_scanner_resource()
+    # if scanners == None:
+    #     return
+    try:
+        with get_db_session() as db_session:
+            scanners_available = get_task_scanners()
+            scanners:List[Scanner.VtScanner] = get_scanners()
+            scanner_dict:Dict[int, Scanner.VtScanner] = {}
+            for scanner in scanners:
+                scanner_dict[scanner.id] = scanner
+            # 统计不同类别的scanner还可以分配的task数量
+            task_num_scanners = {}
+            for scanner_id, engine, parallel, running in scanners_available:
+                if parallel == 0 or parallel == running:
+                    continue
+                if engine in task_num_scanners:
+                    task_num_scanners[engine][0] += parallel-running
+                    task_num_scanners[engine][1].append((scanner_id, parallel-running, parallel))
+                else:
+                    task_num_scanners[engine] = [parallel-running, [(scanner_id, parallel-running, parallel)]]
+            # 获取各个engine的queued task
+            for engine in task_num_scanners:
+                can_apply_task_num = task_num_scanners[engine] 
+                wait_tasks = get_queued_tasks(db_session=db_session, scan_engine=engine, num=can_apply_task_num)
+                scanners_sorted:List[Tuple] = task_num_scanners[engine][1]
+                # 按照使用率从低到高分发
+                index = 0
+                while index < len(wait_tasks):
+                    wait_task = wait_tasks[index]
+                    if len(scanners_sorted) == 0:
+                        break
+                    scanners_sorted.sort(
+                        key=lambda x: (x[1] / x[2]) if x[2] > 0 else 0,
+                    )
+                    scanner_chosed = scanners_sorted[0]
+                    # 可能出现scanner故障，剩余scanner不够用
+                    if scanner_chosed[1] == scanner_chosed[2]:
+                        break
+                    scanner = scanner_dict[scanner_chosed[0]]
+                    ok = distribute_task(scanner, wait_task)
+                    if ok:
+                        scanners_sorted[0][1] += 1
+                        index += 1
+                        db_session.add(wait_task)
+                    else: # scanner存在问题先不分发
+                        scanners_sorted.pop(0)
+                        logger.warn(f"scanner {scanner.name} post task error, skip...")
+                    
+                        
+                    
+    except Exception as e:
+        logger.error(f"Dbsession save {db_session} exception: {e}")
 
 def task_schedule():
     # 周期性执行任务逻辑

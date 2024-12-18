@@ -226,7 +226,7 @@ async def get_report(
 
 # 健康检查接口
 @app.get("/healthz")
-async def get_report(
+async def healthz(
     db_session: Session = Depends(get_db_session)
 ):
     return {"status": "ok"}
