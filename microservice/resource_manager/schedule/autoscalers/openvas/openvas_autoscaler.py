@@ -52,6 +52,18 @@ def get_db_scanners(db_session: Session):
     )
     return query.all()
 
+def fetch_node_info():
+    v1 = client.CoreV1Api()
+    # 获取所有节点的信息
+    nodes = v1.list_node().items
+    node_info = {}
+    for node in nodes:
+        total_cpu = node.status.allocatable['cpu']
+        total_memory = node.status.allocatable['memory']
+        node_name = node.metadata.name
+        node_info[node_name] = (total_cpu, total_memory) 
+    return node_info
+
 def trace_nodes_usage():
     pass
 
