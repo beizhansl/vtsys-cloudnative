@@ -103,13 +103,13 @@ def fetch_pod_info():
     retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
     retry_error_callback=handle_retry_error
 )
-def fetch_scaler_info():
+def fetch_scaler_info() -> Dict[str, Tuple[str, float, float, float, float, float]]:
     """获取autoscaler注册信息,即表明哪些类型扫描器可以被自动扩缩容
     
     Return:
     {
-        'openvas': ('HPA|VPA', 30)
-        'zap': ('HPA', 20)
+        'openvas': ('HPA|VPA', 30, 300, num, num, num)
+        'zap': ('HPA', 20, 500, num, num, num)
     }
     """
     # 创建自定义对象 API 实例
@@ -129,9 +129,12 @@ def fetch_scaler_info():
             continue
         engine = labels['engine']
         typeL = labels['type']
-        cpu_cost = labels['cpu_cost']
-        memory_cost = labels['memory_cost']
-        scalers_info[engine] = (typeL, cpu_cost, memory_cost)
+        cpu_cost = float(labels['cpu_cost'])
+        memory_cost = float(labels['memory_cost'])
+        time_cost = float(labels['time_cost'])
+        external_cpu_cost = float(labels['external_cpu_cost'])
+        external_memory_cost = float(labels['external_memory_cost'])
+        scalers_info[engine] = (typeL, cpu_cost, memory_cost, time_cost, external_cpu_cost, external_memory_cost)
     return scalers_info
 
 # query scanner_engine tasks from task manager
@@ -228,6 +231,7 @@ def call_scanner_scale_in(scanner_url:str, num: int):
 def scale_in_when_task_load_low(engine_load: Dict[str, int], 
                                 scanners: List[Scanner.VtScanner],
                                 node_usage: List[str, float],
+                                scalers: Dict[str, Tuple[str, int, int, float]],
                                 db_session: Session):
     try:
         engine_parallel:Dict[str, int] = {}
@@ -243,9 +247,12 @@ def scale_in_when_task_load_low(engine_load: Dict[str, int],
         need_scale_in = []
         need_scale_num = {}
         for engine in engine_load:
+            if engine not in scalers:
+                continue
             if engine_load[engine] < engine_parallel[engine]:
                 need_scale_in.append(engine)
                 need_scale_num[engine] = engine_parallel[engine] - engine_load[engine]
+        # 获取各个scanner运行中的任务数
         scanner_task_num = list_scanenr_running_tasks_num(need_scale_in)
         waiting_scale_in: Dict[str, List[Tuple]] = {}
         for scanner_id in scanner_task_num:
@@ -260,7 +267,7 @@ def scale_in_when_task_load_low(engine_load: Dict[str, int],
                     waiting_scale_in[engine].append((usage, parallel_num - running_num, scanner_id))
                 else:
                     waiting_scale_in[engine] = [(usage, parallel_num - running_num, scanner_id)]
-        # 遍历engine, 进行缩容
+        # 遍历engine, 进行缩容, by engine
         for engine in waiting_scale_in:
             info_list = waiting_scale_in[engine]
             info_list.sort(key=itemgetter(0,1), reverse=True)
@@ -284,7 +291,52 @@ def scale_in_when_task_load_low(engine_load: Dict[str, int],
                 
     except Exception as e:
         logger.error(f"scale in with task load low error: {e}")
-    
+
+def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
+                                 node_cpu_available: Dict[str, float],
+                                 node_memory_used: Dict[str, float],
+                                 node_memory_available: Dict[str, float],
+                                 node_info: Dict[str, Tuple[float, float]],
+                                 scalers: Dict[str, Tuple[str, int, int, float, int, int]],
+                                 scanners: List[Scanner.VtScanner],
+                                 db_session: Session):
+    # by node
+    for node in node_info:
+        # 首先计算node的资源负载情况，判断是否需要缩容
+        if node not in node_cpu_available or node not in node_cpu_used:
+            logger.error(f"node {node} node_cpu_usage not found")
+            continue
+        if node not in node_memory_available or node not in node_memory_used:
+            logger.error(f"node {node} node_memory_usage not found")
+            continue
+        # 资源使用率计算
+        cpu_total = node_info[node][0]
+        cpu_other = cpu_total - node_cpu_available[node] - node_cpu_used[node]
+        cpu_expected_usage = cpu_other + scalers[engine][4]
+        memory_total = node_info[node][1]
+        memory_other = memory_total - node_memory_available[node] - node_memory_used[node]
+        memory_expected_usage = memory_other + scalers[engine][5]
+        scanner_dict = {}
+        for scanner in scanners:
+            if scanner.engine not in scalers or scanner.node != node:
+                continue
+            engine = scanner.engine
+            scanner_dict[scanner.id] = scanner
+            cpu_cost = scalers[engine][1]
+            memory_cost = scalers[engine][2]
+            time_cost = scalers[engine][3]
+            cpu_expected_usage += cpu_cost * scanner.max_concurrency
+            memory_expected_usage += memory_cost * scanner.max_concurrency
+        # 如果超出高水位则需要缩容, 否则不需要
+        if cpu_expected_usage > cpu_total * cpuHwl \
+            or memory_expected_usage > memory_total * memoryHwl:
+            pass
+        
+        # 如果低于低水位则扩容, 否则不需要        
+        if cpu_expected_usage < cpu_total * cpuLwl \
+            and memory_expected_usage < memory_total * memoryLwl:
+            pass                  
+
 # 全局唯一自动扩缩容器
 def autoscaler():
     # 周期性执行任务逻辑
@@ -312,7 +364,7 @@ def autoscaler():
             node_memory_available = query_nodes_memory_available()
             # 所有node的总体信息
             node_info = fetch_node_info()
-            # 首先处理任务负载低时的缩容
+            # 1. 首先处理任务负载低时的缩容 by engine
             # 计算所有node的使用率
             node_cpu_usage = {}
             node_memory_usage = {}
@@ -328,8 +380,16 @@ def autoscaler():
                     logger.error(f"node {node} memory lost")
                 node_usage[node] = node_cpu_usage[node]
                 node_usage[node] = cpuWeight * node_cpu_usage[node] + memoryWeight * node_memory_usage[node]
-            scale_in_when_task_load_low(engine_load, scanners, node_usage)
-            
+            scale_in_when_task_load_low(engine_load=engine_load, scanners=scanners, 
+                                        node_usage=node_usage, scalers=scalers, db_session=db_session)
+            db_session.flush()
+            # 2. 资源高时缩容 by node
+            node_cpu_used = query_namespace_cpu_used()
+            node_memory_used = query_namespace_memory_used()
+            scale_in_or_out_with_node_load(node_cpu_used=node_cpu_used, node_cpu_available=node_cpu_available,
+                                         node_memory_available=node_memory_available, node_memory_used=node_memory_used,
+                                         node_info=node_info, scalers=scalers, scanners=scanners, db_session=db_session)
+
     except Exception as e:
         logger.error(f"Execute the autoscale error: {e}")
 

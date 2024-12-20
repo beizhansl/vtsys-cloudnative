@@ -103,7 +103,7 @@ def query_namespace_cpu_used():
 
 def query_namespace_memory_used():
     # 查询namespace=vtscan的memory使用
-    query = f'sum by (instance) (container_memory_usage_bytes{{namespace="{namespace}"}})'
+    query = f'sum by (instance) (container_memory_rss{{namespace="{namespace}"}})'
     memory_used_dict = {}
     try:
         data = query_prometheus(query)

@@ -7,5 +7,8 @@ metadata:
     env: test
     engine: openvas
     type: HPA|VPA
-    cpu_cost: "30"    # 单个任务消耗的时长,min为单位
+    time_cost: "30"    # 单个任务消耗的时长,min为单位
+    cpu_cost: "1.5"     # 单个任务占用的cpu, core为单位
     memory_cost: "100"   # 单个任务占用的内存，M为单位
+    external_cpu_cost: "0.5"  # 除了任务外额外的消耗
+    external_memory_cost: "2000"  # 除了任务外额外的消耗

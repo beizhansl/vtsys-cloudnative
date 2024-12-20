@@ -7,5 +7,8 @@ metadata:
     env: test
     engine: zap
     type: HPA
-    cpu_cost: "20"
+    time_cost: "20"
+    cpu_cost: "1.5"
     memory_cost: "500"
+    external_memory_cost: "1000"
+    external_cpu_cost: "0"
