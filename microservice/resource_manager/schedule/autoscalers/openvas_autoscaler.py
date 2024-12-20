@@ -16,6 +16,8 @@ from kubernetes import client
 from kubernetes.client import V1PodList
 from kubernetes.client.rest import ApiException
 from datetime import timezone
+from resource_manager.promql import nodes_cpu_vt_scan_assignable, nodes_memory_vt_scan_assignable 
+from config import settings
 
 # 设置结构化日志
 logging.basicConfig(
@@ -31,7 +33,6 @@ taskManagerUrl = f"http://{taskManagerHost}:{taskManagerPort}"
 resourceManagerHost = os.getenv("RESOURCE_MANAGER_HOST", "localhost")
 resourceManagerPort = os.getenv("RESOURCE_MANAGER_PORT", "4000")
 resourceManagerUrl = f"http://{resourceManagerHost}:{resourceManagerPort}"
-namespace = os.getenv("NAMESPACE", "vtscan")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
@@ -52,7 +53,20 @@ def get_db_scanners(db_session: Session):
     )
     return query.all()
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1),
+    retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
+    retry_error_callback=handle_retry_error
+)
 def fetch_node_info():
+    """获取节点信息
+    
+    Return: 
+    {
+        "node1": (cpu_available, memory_available)
+    }
+    """
     v1 = client.CoreV1Api()
     # 获取所有节点的信息
     nodes = v1.list_node().items
@@ -64,8 +78,31 @@ def fetch_node_info():
         node_info[node_name] = (total_cpu, total_memory) 
     return node_info
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1),
+    retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
+    retry_error_callback=handle_retry_error
+)
+def fetch_pod_info(pod_type: str):
+    """获取openvas扫描器pod信息"""
+    v1 = client.CoreV1Api()
+    pods = v1.list_namespaced_pod(namespace=settings.scanner_namespace)
+    return pods
+    
 def trace_nodes_usage():
-    pass
+    try:
+        node_info = fetch_node_info()
+        cpu_assignable = nodes_cpu_vt_scan_assignable()
+        memory_assignable = nodes_memory_vt_scan_assignable()
+        pod_info = fetch_node_info()
+        # 先收缩再扩充
+        # 在扩容的时候需要知道各种scanner的比例, 按照任务数*执行时间来分配
+        
+        # 
+    except Exception as e:
+        logger.error(f"get node info error: {e}")
+        return
 
 def openvas_autoscaler():
     # 周期性执行任务逻辑

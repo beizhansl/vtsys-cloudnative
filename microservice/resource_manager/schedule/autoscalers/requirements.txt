@@ -3,3 +3,4 @@ tenacity
 kubernetes
 apscheduler
 structlog
+pydantic_settings
