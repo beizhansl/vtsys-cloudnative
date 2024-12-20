@@ -1,26 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: openvas-autoscaler-deployment
+  name: autoscaler-deployment
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: openvas-autoscaler
+      app: autoscaler
   template:
     metadata:
       labels:
-        app: openvas-autoscaler
+        app: autoscaler
     spec:
-      serviceAccountName: openvas-autoscaler-sa # 提供访问集群pod的能力
+      serviceAccountName: autoscaler-sa # 提供访问集群pod的能力
       containers:
-      - name: openvas-autoscaler
-        image: cloudnative-vt/openvas-autoscaler:v1.0
+      - name: autoscaler
+        image: cloudnative-vt/autoscaler:v1.0
         env:
-        - name: NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
+        - name: SCANNER_NAMESPACE
+          value: "vt-scanner"
         - name: PROMETHEUS_HOST
           value: prometheus-server.monitoring.svc.cluster.local
         - name: PROMETHEUS_PORT

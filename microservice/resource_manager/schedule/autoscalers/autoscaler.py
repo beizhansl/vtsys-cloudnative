@@ -17,7 +17,6 @@ from kubernetes.client import V1PodList
 from kubernetes.client.rest import ApiException
 from datetime import timezone
 from resource_manager.promql import nodes_cpu_vt_scan_assignable, nodes_memory_vt_scan_assignable 
-from config import settings
 
 # 设置结构化日志
 logging.basicConfig(
@@ -33,6 +32,7 @@ taskManagerUrl = f"http://{taskManagerHost}:{taskManagerPort}"
 resourceManagerHost = os.getenv("RESOURCE_MANAGER_HOST", "localhost")
 resourceManagerPort = os.getenv("RESOURCE_MANAGER_PORT", "4000")
 resourceManagerUrl = f"http://{resourceManagerHost}:{resourceManagerPort}"
+scannerNamespace = os.getenv("SCANNER_NAMESPACE", "vt-scanner")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")
@@ -84,10 +84,10 @@ def fetch_node_info():
     retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
     retry_error_callback=handle_retry_error
 )
-def fetch_pod_info(pod_type: str):
+def fetch_pod_info():
     """获取openvas扫描器pod信息"""
     v1 = client.CoreV1Api()
-    pods = v1.list_namespaced_pod(namespace=settings.scanner_namespace)
+    pods = v1.list_namespaced_pod(namespace=scannerNamespace)
     return pods
     
 def trace_nodes_usage():
@@ -95,7 +95,7 @@ def trace_nodes_usage():
         node_info = fetch_node_info()
         cpu_assignable = nodes_cpu_vt_scan_assignable()
         memory_assignable = nodes_memory_vt_scan_assignable()
-        pod_info = fetch_node_info()
+        pod_info = fetch_pod_info()
         # 先收缩再扩充
         # 在扩容的时候需要知道各种scanner的比例, 按照任务数*执行时间来分配
         
@@ -104,9 +104,10 @@ def trace_nodes_usage():
         logger.error(f"get node info error: {e}")
         return
 
-def openvas_autoscaler():
+# 全局唯一自动扩缩容器
+def autoscaler():
     # 周期性执行任务逻辑
-    # openvas扩缩容  - 交给各个扩缩器自己处理
+    # 扩缩容 - 统一处理
     # 从prometheus获取各个节点的相关信息
     # 按照策略确定是否扩容/缩容
     #   1.1. 扩容，VPA/HPA
@@ -123,11 +124,11 @@ if __name__ == "__main__":
         logger.error((e))
         raise
     scheduler = BlockingScheduler()
-    scheduler.add_job(openvas_autoscaler, 'interval', seconds=30)  # 每30秒执行一次
-    logger.info("Starting openvas autoscaler...")
+    scheduler.add_job(autoscaler, 'interval', seconds=30)  # 每30秒执行一次
+    logger.info("Starting autoscaler...")
     try:
         scheduler.start()
-        logger.info("Started openvas autoscaler...")
+        logger.info("Started autoscaler...")
     except (KeyboardInterrupt, SystemExit):
         pass
-    logger.info("Stopped openvas autoscaler...")
+    logger.info("Stopped autoscaler...")
