@@ -69,7 +69,6 @@ def query_prometheus(query: str):
         raise Exception(f"Prometeues query failed: {data.get('error', 'Unknown error')}")
     return data['data']
 
-
 def query_nodes_cpu_avaliable() -> Dict[str, float]:
     # 查询node整体的idle
     query = 'sum by (node) (rate(node_cpu_seconds_total{mode="idle"}[1m]))'
@@ -78,7 +77,8 @@ def query_nodes_cpu_avaliable() -> Dict[str, float]:
     try:
         data = query_prometheus(query)
     except Exception as e:
-        logger.error(f"Prometeues node available cpu query failed: {e}") 
+        logger.error(f"Prometeues node available cpu query failed: {e}")
+        raise
     # 解析查询结果
     for result in data['result']:
         node_name = result['metric'].get('node', 'unknown')
@@ -94,6 +94,7 @@ def query_namespace_cpu_used():
         data = query_prometheus(query)
     except Exception as e:
         logger.error(f"Prometeues namespace used cpu query failed: {e}") 
+        raise
     for result in data['data']['result']:
         node_name = result['metric'].get('instance', 'unknown')
         used_rate = float(result['value'][1])  # 将字符串转换为浮点数
@@ -108,6 +109,7 @@ def query_namespace_memory_used():
         data = query_prometheus(query)
     except Exception as e:
         logger.error(f"Prometeues namespace available memory query failed: {e}") 
+        raise
     for result in data['data']['result']:
         node_name = result['metric'].get('instance', 'unknown')
         used = float(result['value'][1])  # 将字符串转换为浮点数
@@ -122,6 +124,7 @@ def query_nodes_memory_available():
         data = query_prometheus(query)
     except Exception as e:
         logger.error(f"Prometeues namespace used memory query failed: {e}") 
+        raise
     for result in data['data']['result']:
         node_name = result['metric'].get('node', 'unknown')
         available_memory = float(result['value'][1])  # 将字符串转换为浮点数

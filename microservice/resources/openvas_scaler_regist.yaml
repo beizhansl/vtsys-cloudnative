@@ -1,0 +1,11 @@
+apiVersion: example.com/v1
+kind: ScalerRegister
+metadata:
+  name: openvas-scaler
+  labels:
+    app: vtscan
+    env: test
+    engine: openvas
+    type: HPA|VPA
+    cpu_cost: "30"    # 单个任务消耗的时长,min为单位
+    memory_cost: "100"   # 单个任务占用的内存，M为单位

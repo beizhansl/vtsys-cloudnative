@@ -182,7 +182,7 @@ async def get_report(
     return task.report
 
 # 提供给资源管理器进行伸缩的接口
-@app.get("/get_tasks_num", response_model=schemas.VtTaskCountResponse)
+@app.get("/list_engine_tasks_num", response_model=schemas.VtTaskCountResponse)
 async def get_report(
     db_session: Session = Depends(get_db_session)
 ):
@@ -204,8 +204,34 @@ async def get_report(
         type_num=type_num,
         task_count=task_count
     )
-
+    
 # 提供给资源管理器进行伸缩的接口
+@app.get("/list_running_tasks_num", response_model=schemas.VtTaskCountResponse)
+async def get_report(
+    engines: schemas.VtRunningTaskCountRequest,
+    db_session: Session = Depends(get_db_session)
+):
+    query =(
+        db_session.query(
+            Task.VtTask.scanner_id, 
+            # Task.VtTask.task_status, 
+            func.count(Task.VtTask.id).label('count')  # 使用func.count来统计每个分组的数量
+        )
+        .filter(Task.VtTask.task_status == Task.Status.RUNNING)  # 筛选状态为'running'的任务
+        .filter(Task.VtTask.scanner_type.in_(engines))
+        .group_by(Task.VtTask.scanner_id)  # 按照扫描器分组
+    )
+    results = query.all()
+    scanner_num = len(results)
+    task_count = []
+    for result in results:
+        task_count.append(schemas.VtRunningTaskCountSchema(scanner_id=result[0], num=result[1]))
+    return schemas.VtRunningTaskCountResponse(
+        scanner_num=scanner_num,
+        task_count=task_count
+    )
+
+# 提供给资源管理器控制删除pod的接口
 @app.get("/get_running_task_num", response_model=schemas.VtTaskCountResponse)
 async def get_report(
     scanner_id: int = Query(..., description="Scanner Name"),

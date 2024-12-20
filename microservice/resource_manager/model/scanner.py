@@ -36,6 +36,7 @@ class VtScanner(Base):
     engine = Column(Enum(ScannerEngine), nullable=False)
     ipaddr = Column(String(16), nullable=False)
     port = Column(String, nullable=False)
+    node = Column(String, nullable=False)
     filetype = Column(Enum(ScannerType), nullable=False)
     status = Column(Enum(Status), default=Status.ENABLE.value, nullable=False)
     max_concurrency = Column(Integer, nullable=False)

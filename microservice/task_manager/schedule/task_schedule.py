@@ -196,7 +196,7 @@ def trace_tasks():
             #     except Exception as e:
             #         logger.error(f"post resource scanners error: {e}")
     except Exception as e:
-        logger.error(f"Dbsession save {db_session} exception: {e}")
+        logger.error(f"Trace tasks error: {e}")
 
 def get_queued_tasks(db_session: Session, scan_engine: str, num: int):
     return db_session.query(Task.VtTask).filter(
@@ -393,7 +393,7 @@ def distribute_tasks():
             #     except Exception as e:
             #         logger.error(f"post resource scanners error: {e}")                      
     except Exception as e:
-        logger.error(f"Dbsession save {db_session} exception: {e}")
+        logger.error(f"Distructe tasks error: {e}")
 
 def task_schedule():
     # 周期性执行任务逻辑

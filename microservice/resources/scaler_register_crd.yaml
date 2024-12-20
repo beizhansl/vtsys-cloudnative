@@ -1,0 +1,23 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scalerregister.cstcloud.cn  # 名字格式为 {resourcename}.{group}
+spec:
+  group: cstcloud.cn            # 自定义资源所属的 API 组
+  versions:
+    - name: v1                  # 资源的版本
+      served: true              # 是否服务此版本
+      storage: true             # 此版本是否作为存储版本
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            metadata:
+              type: object
+  scope: Cluster             # 资源的作用域，可以是 Namespaced 或者 Cluster
+  names:
+    plural: scalerregisters          # 复数形式的资源名称
+    singular: scalerregister         # 单数形式的资源名称
+    kind: ScalerRegister             # 自定义资源的种类名称
+    shortNames:
+    - asr                       # 简短名称，方便命令行使用

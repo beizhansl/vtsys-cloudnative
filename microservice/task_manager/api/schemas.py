@@ -80,6 +80,20 @@ class VtTaskCountSchema(BaseModel):
     num: int
 
 
+class VtRunningTaskCountSchema(BaseModel):
+    scanner_id: int
+    num: int
+
+
 class VtTaskCountResponse(BaseModel):
     type_num: int
     task_count: List[VtTaskCountSchema]
+    
+
+class VtRunningTaskCountResponse(BaseModel):
+    scanner_num: int
+    task_count: List[VtRunningTaskCountSchema]
+
+
+class VtRunningTaskCountRequest(BaseModel):
+    engines: List[str]

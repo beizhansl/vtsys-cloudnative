@@ -1,0 +1,11 @@
+apiVersion: example.com/v1
+kind: ScalerRegister
+metadata:
+  name: zap-scaler
+  labels:
+    app: vtscan
+    env: test
+    engine: zap
+    type: HPA
+    cpu_cost: "20"
+    memory_cost: "500"

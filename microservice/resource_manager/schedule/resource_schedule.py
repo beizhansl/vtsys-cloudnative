@@ -63,6 +63,7 @@ def fetch_scanners():
                 'labels': pod.metadata.labels,
                 'status': pod.status.phase,
                 'ipaddr': pod.status.pod_ip,
+                'node': pod.spec.node_name
             })
     except ApiException as e:
         logger.error(f"Exception when calling CoreV1Api->list_pod_for_all_namespaces: {e}\n")
@@ -192,6 +193,7 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
         wait_time = calculate_wait_time(db_scanner.update_time)
         if wait_time < deleteWaitTime:
             return
+        # 理论上WAITING状态只有在scanner上没有负载时删除
         try:
             canDelete = check_scanner_running_task(db_scanner.name)
         except Exception as e:
@@ -203,7 +205,7 @@ def trans_db_scanner_status(db_scanner:Scanner.VtScanner, k8s_scanner_dict: Dict
     if db_scanner.except_num >= db_scanner.max_concurrency:
         db_scanner.status = Scanner.Status.DELETING
     # 对于deleting状态下的scanner执行删除操作
-    if db_scanner.status == Scanner.Status.DELETED:
+    if db_scanner.status == Scanner.Status.DELETING:
         delete_deleting_scanner(db_scanner.name)    
 
 def insert_scanners(k8s_scanenrs: List[dict], db_scanner_dict: Dict[str, Scanner.VtScanner]):
@@ -214,6 +216,7 @@ def insert_scanners(k8s_scanenrs: List[dict], db_scanner_dict: Dict[str, Scanner
             k8s_scanner_status = k8s_scanner['status']
             if k8s_scanner_status != K8sPodStatus.RUNNING:
                 continue
+            k8s_scanner_node = k8s_scanner['node']
             k8s_scanner_labels = k8s_scanner['labels']
             k8s_scanner_ipaddr = k8s_scanner['ipaddr']
             new_scanner = Scanner.VtScanner(
@@ -222,6 +225,7 @@ def insert_scanners(k8s_scanenrs: List[dict], db_scanner_dict: Dict[str, Scanner
                 engine=k8s_scanner_labels['engine'],
                 ipaddr=k8s_scanner_ipaddr,
                 port=k8s_scanner_labels.get('port', '80'),
+                node=k8s_scanner_node,
                 filetype=k8s_scanner_labels.get('filetype', Scanner.FileType.HTML),
                 max_concurrency=k8s_scanner_labels['max_concurrency']
             )

@@ -17,6 +17,18 @@ spec:
       - name: autoscaler
         image: cloudnative-vt/autoscaler:v1.0
         env:
+        - name: CPU_WEIGHT
+          value: "0.5"
+        - name: MEMORY_WEIGHT
+          value: "0.5"
+        - name: CPU_HWL
+          value: "0.9"
+        - name: CPU_LWL
+          value: "0.7"
+        - name: MEMORY_HWL
+          value: "0.9"
+        - name: MEMORY_LWL
+          value: "0.7"
         - name: SCANNER_NAMESPACE
           value: "vt-scanner"
         - name: PROMETHEUS_HOST
