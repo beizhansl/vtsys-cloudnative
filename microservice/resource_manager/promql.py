@@ -15,7 +15,7 @@ logger = structlog.wrap_logger(logging.getLogger())
 prometheusHost = os.getenv("PROMETHEUS_HOST", "localhost")
 prometheusPort = os.getenv("PROMETHEUS_PORT", "9090")
 prometheusUrl = f"http://{prometheusHost}:{prometheusPort}"
-namespace = os.getenv("NAMESPACE", "vtscan")
+namespace = os.getenv("NAMESPACE", "vtscanner")
 
 def handle_retry_error(retry_state):
     logger.error(f"All retries failed with exception: {retry_state.outcome.exception()}")

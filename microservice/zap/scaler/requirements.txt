@@ -1,0 +1,5 @@
+structlog
+fastapi
+uvicorn
+pydantic
+kubernetes

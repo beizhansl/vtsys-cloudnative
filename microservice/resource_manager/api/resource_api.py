@@ -122,4 +122,5 @@ async def update_resource_scanner(
 async def healthz(
     db_session: Session = Depends(get_db_session)
 ):
+    db_session.close()
     return {"status": "ok"}
