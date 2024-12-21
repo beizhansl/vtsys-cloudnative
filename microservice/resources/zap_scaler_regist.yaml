@@ -12,3 +12,5 @@ metadata:
     memory_cost: "500"
     external_memory_cost: "1000"
     external_cpu_cost: "0"
+    hostname: "openvas-scaler.default.svc.cluster.local"
+    port: "80"

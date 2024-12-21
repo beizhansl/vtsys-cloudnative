@@ -52,6 +52,11 @@ class K8sPodStatus(Enum):
         UNKNOWN = 'Unknown'
 
 def get_db_scanners(db_session: Session) -> List[Scanner.VtScanner]:
+    """获取scanners信息
+    
+    Return: [Scanner.Vtscanner]
+    """
+    
     query = (
         db_session.query(Scanner.VtScanner)
         .filter(Scanner.VtScanner.status.in_(
@@ -103,13 +108,13 @@ def fetch_pod_info():
     retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
     retry_error_callback=handle_retry_error
 )
-def fetch_scaler_info() -> Dict[str, Tuple[str, float, float, float, float, float]]:
+def fetch_scaler_info() -> Dict[str, Tuple[str, float, float, float, float, float, str, str]]:
     """获取autoscaler注册信息,即表明哪些类型扫描器可以被自动扩缩容
     
     Return:
     {
-        'openvas': ('HPA|VPA', 30, 300, num, num, num)
-        'zap': ('HPA', 20, 500, num, num, num)
+        'openvas': ('HPA|VPA', 30, 300, num, num, num, hostname, port)
+        'zap': ('HPA', 20, 500, num, num, num, hostname, port)
     }
     """
     # 创建自定义对象 API 实例
@@ -134,7 +139,10 @@ def fetch_scaler_info() -> Dict[str, Tuple[str, float, float, float, float, floa
         time_cost = float(labels['time_cost'])
         external_cpu_cost = float(labels['external_cpu_cost'])
         external_memory_cost = float(labels['external_memory_cost'])
-        scalers_info[engine] = (typeL, cpu_cost, memory_cost, time_cost, external_cpu_cost, external_memory_cost)
+        scaler_hostname = labels['hostname']
+        scaler_port = labels['port']
+        scalers_info[engine] = (typeL, cpu_cost, memory_cost, time_cost, external_cpu_cost, 
+                                external_memory_cost, scaler_hostname, scaler_port)
     return scalers_info
 
 # query scanner_engine tasks from task manager
@@ -208,13 +216,12 @@ def list_scanenr_running_tasks_num(engines: List[str]) -> Dict[str, int]:
     retry_error_callback=handle_retry_error
 )
 def call_scanner_scale_in(scanner_url:str, num: int):
-    """从任务管理模块获取所有扫描器的任务正在执行情况
+    """调用某个scanner的缩容接口
     
     Return:
     {
-        '1': 1,
-        '2': 3,
-        scanner_id: num
+        'ok': True,
+        'errmsg': "msg"
     }
     """
     response = requests.get(
@@ -228,11 +235,46 @@ def call_scanner_scale_in(scanner_url:str, num: int):
         logger.error(f"Scanner {scanner_url} scale in error: {data['errmsg']}")
     return ok
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1),
+    retry=(retry_if_exception_type(requests.exceptions.Timeout) | retry_if_exception_type(requests.exceptions.ConnectionError)),
+    retry_error_callback=handle_retry_error
+)
+def call_scaler_scale_out(scaler_url:str, node: str):
+    """调用某个scaler的HPA扩容接口
+    
+    Return:
+    {
+        'ok': True,
+        'errmsg': "msg"
+    }
+    """
+    response = requests.get(
+        scaler_url + '/scale_out_with_node',
+        params={'node_name': node},
+    )
+    response.raise_for_status()
+    data = response.json()
+    ok = data['ok']
+    if not ok:
+        logger.error(f"Scale {scaler_url} scale out error: {data['errmsg']}")
+    return ok
+
 def scale_in_when_task_load_low(engine_load: Dict[str, int], 
                                 scanners: List[Scanner.VtScanner],
                                 node_usage: List[str, float],
-                                scalers: Dict[str, Tuple[str, int, int, float]],
+                                scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]],
                                 db_session: Session):
+    """对任务负载低的扫描器缩容
+    
+    Keyword arguments:
+    engine_load: 通过engine获取该engine上的任务负载数量
+    scanners: 扫描器列表
+    node_usage: 节点的负载情况
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost', 'external_memory_cost', 'hostname', 'port')
+    db_session: 数据库连接
+    """
     try:
         engine_parallel:Dict[str, int] = {}
         scanner_dict:Dict[int, Scanner.VtScanner] = {}
@@ -292,14 +334,280 @@ def scale_in_when_task_load_low(engine_load: Dict[str, int],
     except Exception as e:
         logger.error(f"scale in with task load low error: {e}")
 
+def compute_assign_rate(engine_load: Dict[str,int],
+                        scanners: List[Scanner.VtScanner],
+                        scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]], # hpa/vpa, cpu_cost, memory_cost, time_cost, external_cpu_cost, external_memory_cost
+                        metric: str
+                        ) -> List[Tuple[float, str]]:
+    """计算各个engine 已分配比例/应分配比例
+    
+    Keyword arguments:
+    metric: 不同的计算指标: cpu/memory
+    scanners: 扫描器列表
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost', 'external_memory_cost', 'hostname', 'port')
+    engine_load: 通过engine获取该engine上的任务负载数量
+    Return: 
+    assign_rate_list: [(1, 'openvas), (1, 'zap')]
+    """
+    # 计算by engine的已分配数，即parallel值
+    engine_assigned:Dict[str, int] = {}
+    for scanner in scanners:
+        engine = scanner.engine
+        if engine not in engine_assigned:
+            engine_assigned[engine] = scanner.max_concurrency
+        else:
+            engine_assigned[engine] += scanner.max_concurrency
+    assign_rate_list: List[Tuple[float, str]] = []
+    cost_index = 1 if metric == 'cpu' else 2
+    external_cost = 3 if metric == 'cpu' else 4
+    # 计算应分配的值
+    total_expected_assign = .0
+    expected_assign_rate:Dict[str, float] = {}
+    for engine in scalers:
+        total_expected_assign += engine_load[engine] * scalers[engine][cost_index] * scalers[engine][3] + scalers[engine][external_cost]
+    # 计算各个engine应该分配的比例
+    for engine in scalers:
+        expected_assign_rate[engine] = float(engine_load[engine] * scalers[engine][cost_index] * scalers[engine][3] + scalers[engine][external_cost]) / total_expected_assign
+    # 计算总共已分配的值
+    total_assigned = .0
+    for engine in scalers:
+        total_assigned += engine_assigned[engine] * scalers[engine][cost_index] * scalers[engine][3] + scalers[engine][external_cost]
+    # 计算各个engine已经分配的比例
+    assigned_rate:Dict[str, float] = {}
+    for engine in scalers:
+        assigned_rate[engine] = float(engine_assigned[engine] * scalers[engine][cost_index] * scalers[engine][3] + scalers[engine][external_cost]) / total_assigned
+    for engine in scalers:
+        assign_rate_list.append((assigned_rate[engine] / expected_assign_rate[engine], engine))
+    return assign_rate_list
+
+def compute_usage(other: float,
+                  scanner_dict: Dict[int, Scanner.VtScanner],
+                  node_scanner_dict: Dict[str, List[int]],
+                  metric: str,
+                  scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]]):
+    """计算某指标的期望使用值
+    
+    Keyword arguments:
+    other: 除了scanner使用外的负载情况
+    scanner_dict: 通过scanner_id获取Vtscanner
+    node_scanner_dict: 通过engine获取某node上全部该类型的scanner
+    metric: 指标, cpu/memory
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost', 'external_memory_cost', 'hostname', 'port')
+    """
+    
+    expected_usage: float = other
+    for engine in node_scanner_dict:
+        scanner_list = node_scanner_dict[engine]
+        external_cost = scalers[engine][4] if metric == 'cpu' else scalers[engine][5]
+        cost = scalers[engine][1] if metric == 'cpu' else scalers[engine][2]
+        expected_usage += external_cost
+        for scanner_id in scanner_list:
+            scanner = scanner_dict[scanner_id]
+            expected_usage += cost * scanner.max_concurrency
+    return expected_usage
+
+def scale_in_with_metric(metric:str, total: float, other: float, hwl: float, lwl: float,
+                         engine_load: Dict[str, int], 
+                         scanner_dict: Dict[int, Scanner.VtScanner], 
+                         scanners: List[Scanner.VtScanner],
+                         node_scanner_dict: Dict[str, List[int]], 
+                         scalers:Dict[str, Tuple[str, float, float, float, float, float, str, str]], 
+                         db_session: Session) -> bool:
+    """根据某指标判断是否需要缩容
+    
+    Keyword arguments:
+    metric: 指标, cpu/memory
+    total: node上该指标的总量
+    other: 除了scanner使用外的负载情况
+    hwl: 高水位线
+    lwl: 低水位线
+    scanner_dict: 通过scanner_id获取Vtscanner
+    node_scanner_dict: 通过engine获取某node上全部该类型的scanner
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost', 'external_memory_cost', 'hostname', 'port')
+    db_session: 数据库连接
+    """
+    expected_usage = compute_usage(other=other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                           metric=metric, scalers=scalers)
+    has_scale_in = False
+    # 如果超出高水位则需要缩容, 否则不需要
+    if expected_usage < total * hwl:
+        return has_scale_in
+    # 缩容到什么程度呢？
+    # 缩容到hwl和lwl的中间向下
+    while expected_usage > total * (hwl + lwl) / 2:
+        has_scale_in = True
+        # 对这个node上的所有scanner按照总的已分配/应分配进行排序
+        # 排序后对第一个node上有的engine的scanner进行缩容，缩容到未高出水位或不再有scanner
+        assign_rate_list: List[Tuple[float, str]] = compute_assign_rate(engine_load=engine_load, scanners=scanners,
+                                                    scalers=scalers, metric=metric)
+        assign_rate_list.sort(key=itemgetter(0) ,reverse=True)
+        scale_in_no_scanner = False
+        for assign_rate in assign_rate_list:
+            engine = assign_rate[1]
+            scale_in_fin = False
+            if engine in node_scanner_dict:
+                for i in range(len(node_scanner_dict[engine])-1, -1, -1): # 存在删除操作所以从后向前遍历
+                    scanner_id = node_scanner_dict[engine][i]
+                    scanner = scanner_dict[scanner_id]
+                    if scanner.max_concurrency == 0:
+                        scanner.status = Scanner.Status.WAITING
+                        db_session.add(scanner)
+                        node_scanner_dict[engine].remove(scanner_id)
+                        continue
+                    else:  # 进行缩容
+                        scale_in_no_scanner = True
+                        scanner_url = f"http://{scanner.ipaddr}:{scanner.port}"
+                        success = call_scanner_scale_in(scanner_url=scanner_url, num=1)
+                        if not success:
+                            # 缩容失败去缩容别的
+                            node_scanner_dict[engine].remove(scanner_id)
+                        else: #缩容成功则退出
+                            scanner.max_concurrency -= 1
+                            if scanner.max_concurrency == 0:
+                                scanner.status = Scanner.Status.WAITING
+                                db_session.add(scanner)
+                                node_scanner_dict[engine].remove(scanner_id)
+                            scale_in_fin = True
+                            break
+            if scale_in_fin:
+                break 
+        # 如果没有scanner可以缩容, 则直接结束
+        if not scale_in_no_scanner:
+            break
+        # 再次计算 cpu_expected_usage 
+        expected_usage = compute_usage(other=other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                        metric='cpu', scalers=scalers)
+        db_session.flush()
+        return has_scale_in
+
+def scale_out_with_cpu_and_memory(node: str,
+                                  cpu_total: float, memory_total: float,
+                                  cpu_other: float, memory_other: float, 
+                                  cpuLwl: float, cpuHwl:float,
+                                  memoryLwl: float, memoryHwl: float,
+                                  engine_load: Dict[str, int], 
+                                  scanner_dict: Dict[int, Scanner.VtScanner], 
+                                  scanners: List[Scanner.VtScanner],
+                                  node_scanner_dict: Dict[str, List[int]], 
+                                  scalers:Dict[str, Tuple[str, float, float, float, float, float, str, str]], 
+                                  db_session: Session) -> bool:
+    """根据某指标判断是否需要扩容
+    
+    Keyword arguments:
+    metric: 指标, cpu/memory
+    total: node上该指标的总量
+    other: 除了scanner使用外的负载情况
+    lwl: 低水位线
+    hwl: 高水位线
+    engine_load: 根据engine获取该engine的任务负载数量
+    scanners: 扫描器列表
+    scanner_dict: 通过scanner_id获取Vtscanner
+    node_scanner_dict: 通过engine获取某node上全部该类型的scanner
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost', 'hostname', 'port')
+    db_session: 数据库连接
+    """
+    cpu_expected_usage = compute_usage(other=cpu_other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                           metric='cpu', scalers=scalers)
+    memory_expected_usage = compute_usage(other=memory_other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                           metric='memory', scalers=scalers)
+    # 如果低于高水位则需要扩容, 否则不需要
+    if cpu_expected_usage > cpu_total * cpuLwl\
+        or memory_expected_usage > memory_total * memoryLwl:
+        return
+    cpu_can_apply_line = cpu_total * ((cpuLwl + cpuHwl) / 2 + cpuHwl) / 2
+    memory_can_apply_line = memory_total * ((memoryLwl + memoryHwl) / 2 + memoryHwl) / 2
+    while cpu_expected_usage < cpu_can_apply_line and memory_expected_usage < memory_can_apply_line:
+        # 对这个node上的所有scanner按照总的已分配/应分配进行排序
+        # 排序后对第一个node上有的engine的scanner进行扩容，扩容到中间或不再有scanner
+        assign_rate_list: List[Tuple[float, str]] = compute_assign_rate(engine_load=engine_load, scanners=scanners,
+                                                    scalers=scalers, metric='cpu')
+        assign_rate_list.sort(key=itemgetter(0))
+        scale_out_no_scanner = False
+        for assign_rate in assign_rate_list:
+            engine = assign_rate[1]
+            scale_out_fin = False
+            scale_type = scalers[engine][0]
+            # 既没有vpa标识也没有hpa表示, 直接忽略不进行扩容
+            if 'vpa' not in scale_type and 'hpa' not in scale_type:
+                continue
+            # 该engine扩充一个任务是否会直接超过
+            cpu_cost = scalers[engine][1] 
+            memory_cost = scalers[engine][2]
+            cpu_after_scale_usage = cpu_expected_usage + cpu_cost
+            memory_after_scale_uasge = memory_expected_usage + memory_cost
+            # 仅支持hpa的话需要进行pod的启动需要把external的加上
+            if 'vpa' not in scale_type:
+                cpu_after_scale_usage += scalers[engine][4] 
+                memory_after_scale_uasge += scalers[engine][5]
+            if cpu_after_scale_usage > cpu_can_apply_line \
+                or memory_after_scale_uasge > memory_can_apply_line:
+                continue
+            # 未超过则扩展
+            # 按照engine支持的扩展方式进行
+            #     如果支持vpc, 直接增加并发度
+            #     如果不支持, 则启动新的pod
+            can_hpa = True
+            if 'vpa' in scale_type:
+                scanner_list = node_scanner_dict[engine]
+                # 扫描器数量为0则需要先通过hpa启动扫描器
+                if len(scanner_list) > 0:
+                    can_hpa = False
+                    waiting_scale_scanner = []
+                    for scanner_id in scanner_list:
+                        scanner_parallel = scanner_dict[scanner_id].max_concurrency
+                        waiting_scale_scanner.append((scanner_parallel, scanner_id))
+                    # 选择并发度最小的扩充
+                    waiting_scale_scanner.sort(key=itemgetter(0))
+                    scanner_id = waiting_scale_scanner[0][1]
+                    scanner = scanner_dict[scanner_id]
+                    scanner.max_concurrency += 1
+                    db_session.add(scanner)
+                    scale_out_fin = True
+                    scale_out_no_scanner = True
+            # 不能进行vpa或者没有scanner可以vpa则进行hpa
+            if 'hpa' in scale_type and can_hpa:
+                scaler_hostname = scalers[engine][6] 
+                scaler_port = scalers[engine][7]
+                scaler_url = f"http://{scaler_hostname}:{scaler_port}"
+                success = call_scaler_scale_out(scaler_url=scaler_url, node=node)
+                if success:
+                    scale_out_fin = True
+                    scale_out_no_scanner = True
+            if scale_out_fin:
+                break 
+        # 如果没有scanner可以扩容, 则直接结束
+        if not scale_out_no_scanner:
+            break
+        # 再次计算 cpu_expected_usage, memory_expected_uasge
+        cpu_expected_usage = compute_usage(other=cpu_other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                        metric='cpu', scalers=scalers)
+        memory_expected_usage = compute_usage(other=memory_other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
+                                        metric='memory', scalers=scalers)
+        db_session.flush()
+        return
+
 def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
                                  node_cpu_available: Dict[str, float],
                                  node_memory_used: Dict[str, float],
                                  node_memory_available: Dict[str, float],
                                  node_info: Dict[str, Tuple[float, float]],
-                                 scalers: Dict[str, Tuple[str, int, int, float, int, int]],
+                                 scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]],
                                  scanners: List[Scanner.VtScanner],
+                                 engine_load: Dict[str, int],
                                  db_session: Session):
+    """根据指标判断是否需要缩容或扩容, by-node
+    
+    Keyword arguments:
+    node_cpu_used: 通过node_name获取所有扫描器在节点上的cpu使用量
+    node_cpu_available: 通过node_name获取节点上的cpu空闲量
+    node_memory_used: 通过node_name获取所有扫描器在节点上的memory使用量
+    node_memory_available: 通过node_name获取节点上的memory空闲量
+    node_info: 通过node_name获取节点的总量信息,('cpu_total' 'memory_total')
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost')
+    scanners: scanner列表
+    engine_load: 通过engine获取该engine上的任务负载数量
+    db_session: 数据库连接
+    """
     # by node
     for node in node_info:
         # 首先计算node的资源负载情况，判断是否需要缩容
@@ -312,30 +620,40 @@ def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
         # 资源使用率计算
         cpu_total = node_info[node][0]
         cpu_other = cpu_total - node_cpu_available[node] - node_cpu_used[node]
-        cpu_expected_usage = cpu_other + scalers[engine][4]
         memory_total = node_info[node][1]
         memory_other = memory_total - node_memory_available[node] - node_memory_used[node]
-        memory_expected_usage = memory_other + scalers[engine][5]
-        scanner_dict = {}
+        scanner_dict:Dict[int, Scanner.VtScanner] = {}
+        node_scanner_dict: Dict[str, List[int]] = {}
         for scanner in scanners:
             if scanner.engine not in scalers or scanner.node != node:
                 continue
-            engine = scanner.engine
             scanner_dict[scanner.id] = scanner
-            cpu_cost = scalers[engine][1]
-            memory_cost = scalers[engine][2]
-            time_cost = scalers[engine][3]
-            cpu_expected_usage += cpu_cost * scanner.max_concurrency
-            memory_expected_usage += memory_cost * scanner.max_concurrency
-        # 如果超出高水位则需要缩容, 否则不需要
-        if cpu_expected_usage > cpu_total * cpuHwl \
-            or memory_expected_usage > memory_total * memoryHwl:
-            pass
-        
-        # 如果低于低水位则扩容, 否则不需要        
-        if cpu_expected_usage < cpu_total * cpuLwl \
-            and memory_expected_usage < memory_total * memoryLwl:
-            pass                  
+            if scanner.status != Scanner.Status.ENABLE:
+                continue
+            engine = scanner.engine
+            if engine not in node_scanner_dict:
+                node_scanner_dict[engine] = [scanner.id]
+            else:
+                node_scanner_dict[engine].append(scanner.id)
+        # 判断并进行CPU指标的缩容
+        has_cpu_scale_in = scale_in_with_metric(metric='cpu', total=cpu_total, other=cpu_other, hwl=cpuHwl,
+                             engine_load=engine_load, scanner_dict=scanner_dict, scanners=scanners,
+                             node_scanner_dict=node_scanner_dict, scalers=scalers,
+                             db_session=db_session)
+        has_memory_scale_in = scale_in_with_metric(metric='memory', total=memory_total, other=memory_other, hwl=memoryHwl,
+                             engine_load=engine_load, scanner_dict=scanner_dict, scanners=scanners,
+                             node_scanner_dict=node_scanner_dict, scalers=scalers,
+                             db_session=db_session)
+        # 进行过缩容则不需要再扩容了
+        if has_cpu_scale_in or has_memory_scale_in:
+            continue
+        # 判断并进行Memory指标的扩容
+        scale_out_with_cpu_and_memory(node=node, cpu_total=cpu_total, cpu_other=cpu_other, memory_total=memory_total,
+                                      memory_other=memory_other, cpuLwl=cpuLwl, cpuHwl=cpuHwl, memoryLwl=memoryLwl,
+                                      memoryHwl=memoryHwl, engine_load=engine_load, scanner_dict=scanner_dict, scanners=scanners,
+                                      node_scanner_dict=node_scanner_dict, scalers=scalers,
+                                      db_session=db_session)
+        db_session.flush()
 
 # 全局唯一自动扩缩容器
 def autoscaler():
@@ -370,10 +688,10 @@ def autoscaler():
             node_memory_usage = {}
             for node in node_cpu_available:
                 node_total = node_info[node][0]
-                node_cpu_usage[node] = 1- node_total/node_cpu_available[node]
+                node_cpu_usage[node] = 1- node_cpu_available[node]/node_total
             for node in node_memory_available:
                 node_total = node_info[node][0]
-                node_memory_usage[node] = 1- node_total/node_memory_available[node]
+                node_memory_usage[node] = 1- node_memory_available[node]/node_total
             node_usage = {}
             for node in node_cpu_usage:
                 if node not in node_memory_available:
@@ -388,7 +706,9 @@ def autoscaler():
             node_memory_used = query_namespace_memory_used()
             scale_in_or_out_with_node_load(node_cpu_used=node_cpu_used, node_cpu_available=node_cpu_available,
                                          node_memory_available=node_memory_available, node_memory_used=node_memory_used,
-                                         node_info=node_info, scalers=scalers, scanners=scanners, db_session=db_session)
+                                         node_info=node_info, scalers=scalers, scanners=scanners, engine_load=engine_load,
+                                         db_session=db_session)
+            # 3. 全局再平衡
 
     except Exception as e:
         logger.error(f"Execute the autoscale error: {e}")
