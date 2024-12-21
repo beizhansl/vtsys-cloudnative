@@ -217,7 +217,8 @@ def list_scanenr_running_tasks_num(engines: List[str]) -> Dict[str, int]:
 )
 def call_scanner_scale_in(scanner_url:str, num: int):
     """调用某个scanner的缩容接口
-    
+    Params:
+    num: 该扫描器剩余的并发数
     Return:
     {
         'ok': True,
@@ -263,7 +264,7 @@ def call_scaler_scale_out(scaler_url:str, node: str):
 
 def scale_in_when_task_load_low(engine_load: Dict[str, int], 
                                 scanners: List[Scanner.VtScanner],
-                                node_usage: List[str, float],
+                                node_usage: Dict[str, float],
                                 scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]],
                                 db_session: Session):
     """对任务负载低的扫描器缩容
@@ -359,7 +360,7 @@ def compute_assign_rate(engine_load: Dict[str,int],
             engine_assigned[engine] += scanner.max_concurrency
     assign_rate_list: List[Tuple[float, str]] = []
     cost_index = 1 if metric == 'cpu' else 2
-    external_cost = 3 if metric == 'cpu' else 4
+    external_cost = 4 if metric == 'cpu' else 5
     # 计算应分配的值
     total_expected_assign = .0
     expected_assign_rate:Dict[str, float] = {}
@@ -434,7 +435,8 @@ def scale_in_with_metric(metric:str, total: float, other: float, hwl: float, lwl
         return has_scale_in
     # 缩容到什么程度呢？
     # 缩容到hwl和lwl的中间向下
-    while expected_usage > total * (hwl + lwl) / 2:
+    times = 0
+    while expected_usage > total * (hwl + lwl) / 2 and times < 10:
         has_scale_in = True
         # 对这个node上的所有scanner按照总的已分配/应分配进行排序
         # 排序后对第一个node上有的engine的scanner进行缩容，缩容到未高出水位或不再有scanner
@@ -457,7 +459,7 @@ def scale_in_with_metric(metric:str, total: float, other: float, hwl: float, lwl
                     else:  # 进行缩容
                         scale_in_no_scanner = True
                         scanner_url = f"http://{scanner.ipaddr}:{scanner.port}"
-                        success = call_scanner_scale_in(scanner_url=scanner_url, num=1)
+                        success = call_scanner_scale_in(scanner_url=scanner_url, num=scanner.max_concurrency-1)
                         if not success:
                             # 缩容失败去缩容别的
                             node_scanner_dict[engine].remove(scanner_id)
@@ -477,8 +479,9 @@ def scale_in_with_metric(metric:str, total: float, other: float, hwl: float, lwl
         # 再次计算 cpu_expected_usage 
         expected_usage = compute_usage(other=other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
                                         metric='cpu', scalers=scalers)
-        db_session.flush()
-        return has_scale_in
+        times += 1
+    db_session.flush()
+    return has_scale_in
 
 def scale_out_with_cpu_and_memory(node: str,
                                   cpu_total: float, memory_total: float,
@@ -516,7 +519,9 @@ def scale_out_with_cpu_and_memory(node: str,
         return
     cpu_can_apply_line = cpu_total * ((cpuLwl + cpuHwl) / 2 + cpuHwl) / 2
     memory_can_apply_line = memory_total * ((memoryLwl + memoryHwl) / 2 + memoryHwl) / 2
-    while cpu_expected_usage < cpu_can_apply_line and memory_expected_usage < memory_can_apply_line:
+    times = 0
+    while cpu_expected_usage < cpu_can_apply_line \
+            and memory_expected_usage < memory_can_apply_line and times < 10:
         # 对这个node上的所有scanner按照总的已分配/应分配进行排序
         # 排序后对第一个node上有的engine的scanner进行扩容，扩容到中间或不再有scanner
         assign_rate_list: List[Tuple[float, str]] = compute_assign_rate(engine_load=engine_load, scanners=scanners,
@@ -584,7 +589,8 @@ def scale_out_with_cpu_and_memory(node: str,
         memory_expected_usage = compute_usage(other=memory_other, scanner_dict=scanner_dict, node_scanner_dict=node_scanner_dict,
                                         metric='memory', scalers=scalers)
         db_session.flush()
-        return
+        times += 1
+    return
 
 def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
                                  node_cpu_available: Dict[str, float],
@@ -644,6 +650,7 @@ def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
                              engine_load=engine_load, scanner_dict=scanner_dict, scanners=scanners,
                              node_scanner_dict=node_scanner_dict, scalers=scalers,
                              db_session=db_session)
+        db_session.flush()
         # 进行过缩容则不需要再扩容了
         if has_cpu_scale_in or has_memory_scale_in:
             continue
@@ -654,6 +661,57 @@ def scale_in_or_out_with_node_load(node_cpu_used: Dict[str, float],
                                       node_scanner_dict=node_scanner_dict, scalers=scalers,
                                       db_session=db_session)
         db_session.flush()
+
+def rebalance_when_extreme_unbanlance(scalers: Dict[str, Tuple[str, float, float, float, float, float, str, str]],
+                                 scanners: List[Scanner.VtScanner], node_usage: Dict[str, float],
+                                 engine_load: Dict[str, int], db_session: Session):
+    """根据指标判断是否需要再平衡
+    
+    Keyword arguments:
+    scalers: 通过node_name获取node的详细情况('hpa', 'cpu_cost', 'memory_cost', 'time_cost', 'external_cpu_cost', 'external_memory_cost')
+    scanners: scanner列表
+    engine_load: 通过engine获取该engine上的任务负载数量
+    node_usage: 节点的负载情况
+    db_session: 数据库连接
+    """
+    # 首先判断是否存在极度不平衡
+    assign_rate = compute_assign_rate(engine_load=engine_load, scanners=scanners,
+                                            scalers=scalers, metric='cpu')
+    assign_rate.sort(key=itemgetter(0), reverse=True)
+    times = 0
+    while assign_rate[0][0] >= 3 and times < 5:
+        # 需要对engine进行再平衡, 收缩
+        engine = assign_rate[0][1]
+        # 按照nodeusage从低到高去收缩，这样可以尽可能将大任务也放置上去
+        # 计算nodeusage
+        waiting_nodes: List[Tuple[float, str]] = []
+        for node in node_usage:
+            waiting_nodes.append(node_usage[node], node)
+        waiting_nodes.sort(key=itemgetter(0))
+        has_scale_in = False
+        for waiting_node in waiting_nodes:
+            node = waiting_node[1]
+            for scanner in scanners:
+                if scanner.node != node or scanner.engine != engine\
+                    or scanner.max_concurrency == 0:
+                        continue
+                # 进行缩容
+                scanner_url = f"http://{scanner.ipaddr}:{scanner.port}"
+                success = call_scanner_scale_in(scanner_url=scanner_url, num=scanner.max_concurrency-1)
+                if success:
+                    scanner.max_concurrency -= 1
+                    if scanner.max_concurrency == 0:
+                        scanner.status = Scanner.Status.WAITING
+                    db_session.add(scanner)
+                    has_scale_in = True
+                    break
+            if has_scale_in:
+                break            
+        assign_rate = compute_assign_rate(engine_load=engine_load, scanners=scanners,
+                                                    scalers=scalers, metric='cpu')
+        assign_rate.sort(key=itemgetter(0), reverse=True)
+        times += 1
+    db_session.flush()
 
 # 全局唯一自动扩缩容器
 def autoscaler():
@@ -683,7 +741,7 @@ def autoscaler():
             # 所有node的总体信息
             node_info = fetch_node_info()
             # 1. 首先处理任务负载低时的缩容 by engine
-            # 计算所有node的使用率
+            #    计算所有node的使用率
             node_cpu_usage = {}
             node_memory_usage = {}
             for node in node_cpu_available:
@@ -709,6 +767,10 @@ def autoscaler():
                                          node_info=node_info, scalers=scalers, scanners=scanners, engine_load=engine_load,
                                          db_session=db_session)
             # 3. 全局再平衡
+            #    判断是否有极不平衡存在
+            #    只需要对已分配/应分配最大的engine进行一次scale-in即可
+            rebalance_when_extreme_unbanlance(scalers=scalers, scanners=scanners, node_usage=node_usage,
+                                              engine_load=engine_load, db_session=db_session)
 
     except Exception as e:
         logger.error(f"Execute the autoscale error: {e}")
