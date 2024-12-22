@@ -17,11 +17,6 @@ class Settings(BaseSettings):
     clientport:int
     gvmdhost: str = "127.0.0.1"
     gvmdport: int = 9390
-    secret_key: str
-    http_proxy: str
-    apikey: str
-    zap_max_thread:int
-    scanner_list: list = []
     max_task_num: int = 10
     
     class Config:

@@ -1,8 +1,6 @@
 import sqlite3
-import time
-import os
 
-data_path = '/home/gunicorn/cve.db'
+data_path = './cve.db'
 from config import logger
 
 class CveSql:

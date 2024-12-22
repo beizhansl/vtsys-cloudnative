@@ -1,10 +1,9 @@
 from fastapi import FastAPI, Depends
 import uvicorn
 from config import settings
-from routers import gvm_task, zap_task
-from dependencies import verify_key
+from routers import gvm_task
 
-app = FastAPI(dependencies=[Depends(verify_key)])
+app = FastAPI()
 
 # #限制访问地址
 # @app.middleware("http")
@@ -17,7 +16,6 @@ app = FastAPI(dependencies=[Depends(verify_key)])
 #     return await call_next(request)
 
 app.include_router(gvm_task.router)
-app.include_router(zap_task.router)
 
 if __name__ == "__main__":
     uvicorn.run(app='main:app', host="0.0.0.0", port=settings.clientport, reload=True)

@@ -7,7 +7,6 @@ import uuid
 
 
 router = APIRouter(
-    prefix="/gvm",  # 前缀只在这个模块中使用
     tags=["gvmtasks"],
 )
 
@@ -18,10 +17,10 @@ async def helloworld():
 
 
 @router.get("/get_task")
-async def get_task(running_id: str):
+async def get_task(task_id: str):
     try:
         pygvm = get_gvm_conn()
-        task = pygvm.get_task(task_id=running_id)
+        task = pygvm.get_task(task_id=task_id)
         progress = task['progress']
         status = task['status']
         return {'ok': True, 'progress': progress, 'running_status': status}
@@ -33,10 +32,10 @@ async def get_task(running_id: str):
 
 
 @router.get("/get_splite_task")
-async def get_task(running_id: str):
+async def get_task(task_id: str):
     try:
         pygvm = get_gvm_conn()
-        ok, unfinished, num = get_splite_task_status(id=running_id)
+        ok, unfinished, num = get_splite_task_status(id=task_id)
         if ok:
             if unfinished == 0:
                 progress = 100
@@ -92,7 +91,7 @@ async def create_task(id:str, target:str):
         task_id = task['@id']
         # 3. 开始任务
         pygvm.start_task(task_id=task_id)
-        return {'ok': True, 'running_id': task_id}
+        return {'ok': True, 'task_id': task_id}
     except Exception as e:
         logger.error('Faild to create gvm task: ' + str(e))
         return {'ok': False, 'errmsg': str(e)}
@@ -108,7 +107,7 @@ async def create_splite_task(target:str, splite_num:int):
         logger.info("Creating splite task...")
         ok, msg = map_to_scanners(splite_num=splite_num, target=target, id=id)
         if ok:
-            return {'ok': True, 'running_id': id}
+            return {'ok': True, 'task_id': id}
         else:
             return {'ok': False, 'errmsg': msg}
     except Exception as e:
@@ -148,7 +147,7 @@ async def create_task_with_config(id:str, target:str, num:int, splite_num:int):
         task_id = task['@id']
         # 4. 开始任务
         pygvm.start_task(task_id=task_id)
-        return {'ok': True, 'running_id': task_id}
+        return {'ok': True, 'task_id': task_id}
     except Exception as e:
         logger.error('Faild to create gvm task: ' + e.with_traceback)
         return {'ok': False, 'errmsg': str(e)}
@@ -157,11 +156,11 @@ async def create_task_with_config(id:str, target:str, num:int, splite_num:int):
 
     
 @router.get("/get_task_result")
-async def get_task_result(running_id: str):
+async def get_task_result(task_id: str):
     try:
         pygvm = get_gvm_conn()
         # 0. 获取task对应results
-        vuls = pygvm.list_results(task_id=running_id, filter_str="apply_overrides=0 levels=hml rows=100 min_qod=70 first=1 sort-reverse=severity")
+        vuls = pygvm.list_results(task_id=task_id, filter_str="apply_overrides=0 levels=hml rows=100 min_qod=70 first=1 sort-reverse=severity")
         return {'ok':True, 'vuls': vuls.data}
     except Exception as e:
         logger.error('Faild to get gvm results: ' + str(e))
@@ -171,13 +170,13 @@ async def get_task_result(running_id: str):
 
 
 @router.delete("/delete_task")
-async def delete_task(running_id: str):
+async def delete_task(task_id: str):
     try:
         pygvm = get_gvm_conn()
         # 1. 停止task
-        pygvm.stop_task(task_id=running_id)
+        pygvm.stop_task(task_id=task_id)
         # 2. 删除task
-        pygvm.delete_task(task_id=running_id)
+        pygvm.delete_task(task_id=task_id)
         return {'ok': True}
     except Exception as e:
         logger.error('Faild to delete gvm task: ' + str(e))
@@ -187,10 +186,10 @@ async def delete_task(running_id: str):
 
 
 @router.delete("/delete_splite_task")
-async def delete_splite_task(running_id: str):
+async def delete_splite_task(task_id: str):
     try:
         pygvm = get_gvm_conn()
-        ok, msg = delete_splite_task_with_id(id=running_id)
+        ok, msg = delete_splite_task_with_id(id=task_id)
         if not ok:
             return {'ok': False, 'errmsg': msg}
         return {'ok': True}
@@ -202,11 +201,11 @@ async def delete_splite_task(running_id: str):
 
 
 @router.get("/get_report")
-async def get_report(running_id: str):
+async def get_report(task_id: str):
     try:
         pygvm = get_gvm_conn()
         # 0. 获取task对应report
-        report = pygvm.list_reports(task_id=running_id)[0]
+        report = pygvm.list_reports(task_id=task_id)[0]
         report_id = report['@id']
         # 1. 获取report文件内容
         content = pygvm.get_report(report_id=report_id, report_format_name='PDF', 
@@ -220,10 +219,10 @@ async def get_report(running_id: str):
 
 
 @router.get("/get_splite_task_report")
-async def get_splite_task_report(running_id: str):
+async def get_splite_task_report(task_id: str):
     try:
         pygvm = get_gvm_conn()
-        ok, vuls = reduce_splite_task(id=running_id)
+        ok, vuls = reduce_splite_task(id=task_id)
         if not ok:
             return {'ok': False, 'errmsg': vuls}
         content = gvm_zh_report(vuls)
@@ -236,11 +235,11 @@ async def get_splite_task_report(running_id: str):
 
 
 @router.get("/get_report_zh")
-async def get_report_zh(running_id: str):
+async def get_report_zh(task_id: str):
     try:
         pygvm = get_gvm_conn()
         # 0. 获取task对应results
-        vuls = pygvm.list_results(task_id=running_id, filter_str="apply_overrides=0 levels=hml rows=100 min_qod=70 first=1 sort-reverse=severity")
+        vuls = pygvm.list_results(task_id=task_id, filter_str="apply_overrides=0 levels=hml rows=100 min_qod=70 first=1 sort-reverse=severity")
         # 1. 对所有结果做中文化
         html_report = gvm_zh_report(vuls.data)
         content = html_report.encode('utf-8')
