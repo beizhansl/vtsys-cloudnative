@@ -7,11 +7,6 @@ from basemodel import Base
 # Assuming these are the translation of the Django model's verbose names to descriptions for SQLAlchemy
 # from enum import Enum as PyEnum
 
-class TaskType(Enum):
-    DISTRIBUTED = 'distributed'
-    SINGLE = 'single'
-    SUBTASK = 'subtask'
-
 
 class TaskStatus(Enum):
     RUNNING = 'Running'
@@ -20,18 +15,27 @@ class TaskStatus(Enum):
     ERROR = 'Error'
 
 
-class VtOpenvasTask(Base):
-    __tablename__ = 'vt_openvas_task'
+class InternStatus(Enum):
+    SPIDER = 'spider'
+    AJAXSPIDER = 'ajaxspider'
+    ACTIVE = 'active'
+    PASSIVE = 'passive'
+    DONE = 'done'
+    FAILED = 'failed'
+
+
+class VtZapTask(Base):
+    __tablename__ = 'vt_zap_task'
 
     id = Column(Integer, primary_key=True)
-    
-    task_type = Column(Enum(TaskType), default=TaskType.SINGLE, nullable=False)
+    target = Column(String(256), nullable=False)
     status = Column(Enum(TaskStatus), default=TaskStatus.RUNNING)
     create_time = Column(DateTime, default=datetime.now(timezone.utc))
     finish_time = Column(DateTime, nullable=True)
     update_time = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
-    running_id = Column(String(36), nullable=True, default='')
-    scanners_str = Column(String(256)) # 对于distributed记录所有地址, 已','分隔
+    running_status = Column(Enum(InternStatus), nullable=False, default=InternStatus.SPIDER)
+    running_id = Column(String(256), nullable=True)
+    errmsg = Column(String(256), nullable=True)
     
     def __repr__(self):
-        return f"<VtOpenvasTask(name={self.id})>"
+        return f"<VtZapTask(name={self.id})>"

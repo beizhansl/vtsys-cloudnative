@@ -49,12 +49,12 @@ def fetch_status(url, task_id):
         {
             ok: False/True, 为False表明扫描引擎出现问题
             errmsg: 错误原因
-            running_status: 任务状态, Running / Done / Failed / Error
+            status: 任务状态, Running / Done / Failed / Error
         }
     """
     response = requests.get(
         url + '/get_task',
-        params={'running_id': task_id},
+        params={'task_id': task_id},
     )
     response.raise_for_status()
     data = response.json()
@@ -63,7 +63,7 @@ def fetch_status(url, task_id):
         msg = data['errmsg']
         logger.error(f"Get task from scanner {url} failed, {msg}")
         return None, msg
-    status = data['running_status']
+    status = data['status']
     return status, msg
 
 @retry(
@@ -83,7 +83,7 @@ def fetch_report(url, task_id):
     """
     response = requests.get(
         url + '/get_report',
-        params={'running_id': task_id},
+        params={'task_id': task_id},
     )
     response.raise_for_status()
     data = response.json()
@@ -161,6 +161,7 @@ def trace_task(dbsession: Session, task:Task.VtTask, update_scanner_dict: dict):
         task.scanner.except_num = 0
         task.except_num = 0
         task.report = report
+        task.finish_time = datetime.now()
         task.task_status = Task.Status.DONE
         dbsession.add(report)
         # dbsession.flush()

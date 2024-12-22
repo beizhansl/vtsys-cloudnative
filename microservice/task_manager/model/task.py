@@ -13,10 +13,10 @@ class TaskType(Enum):
     HOST = 'host'
 
 class Status(Enum):
-    QUEUED = 'queued'
-    RUNNING = 'running'
-    DONE = 'done'
-    FAILED = 'failed'
+    QUEUED = 'Queued'
+    RUNNING = 'Running'
+    DONE = 'Done'
+    FAILED = 'Failed'
 
 # class RunningStatus(PyEnum):
 #     SPIDER = 'spider'

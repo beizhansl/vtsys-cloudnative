@@ -1,8 +1,9 @@
 fastapi
 pydantic_settings
-python-gvm
+zaproxy
 sqlalchemy
 structlog
 pymysql
 uvicorn
 pydantic
+apscheduler

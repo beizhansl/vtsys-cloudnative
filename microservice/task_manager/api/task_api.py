@@ -1,7 +1,7 @@
 import base64
 import logging
 import structlog
-from ..model import task as Task, report as Report
+from ..model import task as Task
 from ..tidb_sql import get_db_session
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func

@@ -1,7 +1,15 @@
 import sqlite3
+import logging
+import structlog
 
-data_path = './cve.db'
-from config import logger
+data_path = '/mnt/cve/cve.db'       # 必须挂载进来
+
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z'
+)
+logger = structlog.wrap_logger(logging.getLogger())
 
 class CveSql:
     def __init__(self) -> None:
@@ -21,4 +29,3 @@ class CveSql:
         except Exception as e:
             logger.error("Find vul Error: " + str(e))
             return False, None
-        
